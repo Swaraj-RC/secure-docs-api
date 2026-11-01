@@ -7,4 +7,3 @@ def test_session_engine_configuration() -> None:
     """Verify engine and session maker configuration."""
     assert engine is not None
     assert async_session_factory is not None
-

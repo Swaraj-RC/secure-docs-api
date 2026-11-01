@@ -23,4 +23,3 @@ def test_storage_backend_protocol() -> None:
     """Verify runtime checkable protocol."""
     mock = MockStorage()
     assert isinstance(mock, StorageBackend)
-

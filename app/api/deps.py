@@ -1,4 +1,3 @@
-"""Shared FastAPI dependencies: auth, workspace context, permission checks.
+from app.db.session import get_db
 
-Expanded in Day 3 (auth) and Day 5 (authorization).
-"""
+__all__ = ["get_db"]

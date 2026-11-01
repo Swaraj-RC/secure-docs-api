@@ -40,4 +40,3 @@ def test_page_creation_empty() -> None:
     assert page.items == []
     assert page.total == 0
     assert page.pages == 1
-
