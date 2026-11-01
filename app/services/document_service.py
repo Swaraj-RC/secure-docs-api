@@ -16,6 +16,7 @@ from app.db.models.version import DocumentVersion
 from app.db.models.workspace import WorkspaceMember, WorkspaceRole
 from app.policies.access import (
     can_create_document,
+    can_download_document,
     can_edit_document,
     can_upload_version,
     can_view_document,
@@ -304,7 +305,6 @@ async def upload_document_version(
         await storage.put(validated.storage_key, _file_stream())
         storage_saved = True
 
-        # Compute next version number
         ver_stmt = select(func.coalesce(func.max(DocumentVersion.version_number), 0)).where(
             DocumentVersion.document_id == doc_id
         )
@@ -352,3 +352,32 @@ async def list_document_versions(
     )
     result = await db.scalars(stmt)
     return list(result.all())
+
+
+async def get_document_version_for_download(
+    db: AsyncSession,
+    actor: User,
+    doc_id: uuid.UUID,
+    version_id: uuid.UUID,
+) -> tuple[Document, DocumentVersion]:
+    doc = await get_document(db=db, actor=actor, doc_id=doc_id)
+    member = await get_workspace_membership(db, doc.workspace_id, actor.id)
+    can_dl = can_download_document(
+        actor_id=actor.id,
+        doc=doc,
+        role=member.role if member else None,
+        share=None,
+    )
+    enforce_document_access(can_dl, member is not None, "download document")
+
+    stmt = (
+        select(DocumentVersion)
+        .where(DocumentVersion.id == version_id)
+        .where(DocumentVersion.document_id == doc_id)
+    )
+    result = await db.scalars(stmt)
+    version = result.first()
+    if not version:
+        raise NotFoundError("Version not found", code="VERSION_NOT_FOUND")
+
+    return doc, version

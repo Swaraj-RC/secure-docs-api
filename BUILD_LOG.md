@@ -22,6 +22,8 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 | 2026-11-01 | Deny-by-default centralized authorization policy | Distributed endpoint checks | Centralizes all RBAC and ACL logic in one pure-function module with zero ORM coupling, preventing data leakage. |
 | 2026-11-01 | GIN pg_trgm index + ILIKE for document search | tsvector / tsquery, plain B-Tree | Fast substring matching for partial codes/vendor names without linguistic tokenization distortion; preserved SQLite test compatibility. |
 | 2026-11-01 | Opaque UUID storage keys with original filename metadata | Content-addressed storage (SHA as key) | Shields filesystem from user-controlled paths, avoids collisions across re-uploads, and retains original filename for download headers. |
+| 2026-11-01 | RFC 5987 / RFC 6266 dual Content-Disposition encoding | Bare ASCII filename | Preserves international UTF-8 filenames in modern browsers via filename*= while supplying sanitized ASCII fallback for legacy HTTP clients. |
+| 2026-11-01 | Storage-level offset/length streaming for byte-range requests | In-memory slicing | Prevents loading multi-megabyte files into RAM; seeks file pointer directly on disk or S3 byte range. |
 
 ---
 
@@ -177,7 +179,7 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - **Context:** Writing unit tests for `S3Storage` to achieve high branch coverage on environments where AWS SDK is not locally installed.
 - **Investigation:** Top-level `try: import aioboto3 except ImportError:` did not bind `aioboto3` in module globals when the package was missing. When tests subsequently injected a mock into `sys.modules["aioboto3"]`, calling `aioboto3.Session()` failed because the global name was never created.
 - **Root cause:** Failed top-level import leaves the variable unbound in module globals.
-- **Fix:** Performed lazy import inside `S3Storage.__init__` (`import aioboto3; self.session = aioboto3.Session()`) after verifying `HAS_AIOBOTO3`.
+- **Fix:** Replaced optional import check with `importlib.util.find_spec("aioboto3") is not None` and deferred `import aioboto3` inside `S3Storage.__init__`.
 - **Verification:** Unit tests with mocked `aioboto3` session execute full CRUD operations against `S3Storage` with 80% branch coverage.
 - **Lesson:** For modules with optional third-party integrations, defer binding the library to the class constructor to support clean dependency injection and mocking.
 - **If asked in an interview:** "If a top-level optional import fails, the variable is unbound in globals, causing NameErrors even if later mocked in `sys.modules`. Deferring `import aioboto3` inside the class constructor allows seamless mocking during test execution without installing heavyweight cloud SDKs."
@@ -190,7 +192,7 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`
 - [ ] Rate limiting is in-memory (single instance only) — Redis backend needed for horizontal scaling
 - [ ] No email delivery — will log tokens to console
-- [ ] S3 storage implementation is Day 7; tested with mocks, optional for cloud deployment
+- [ ] S3 storage implementation tested with mocks, optional for cloud deployment
 - [ ] Antivirus hook is a stub interface
 
 ## What I'd Do Next With More Time

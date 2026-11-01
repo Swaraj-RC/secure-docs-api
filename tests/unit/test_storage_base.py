@@ -7,7 +7,12 @@ class MockStorage:
     async def put(self, key: str, stream: AsyncIterator[bytes] | bytes) -> int:
         return 0
 
-    async def get(self, key: str) -> AsyncIterator[bytes]:
+    async def get(
+        self,
+        key: str,
+        offset: int = 0,
+        length: int | None = None,
+    ) -> AsyncIterator[bytes]:
         async def _empty() -> AsyncIterator[bytes]:
             if False:
                 yield b""
