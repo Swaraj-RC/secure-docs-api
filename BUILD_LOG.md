@@ -228,6 +228,20 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 
 ---
 
+### 2026-11-01 — Query parameter ISO 8601 plus sign decoded as whitespace
+- **Area:** Testing / Query Parameter Encoding (`tests/integration/test_edge_cases.py`)
+- **Symptom:** Query string `?created_after=2026-11-06T12:00:00+00:00` failed with `422 Unprocessable Entity` ("Input should be a valid datetime, invalid character in timezone offset").
+- **Context:** Verifying temporal document query filters (`created_after`, `created_before`) with ISO 8601 timestamps.
+- **Investigation:** In application/x-www-form-urlencoded and URI query component specifications, the `+` character represents a space (` `). When unencoded `+00:00` was transmitted, FastAPI/Starlette received ` 00:00`, which Pydantic rejected as an invalid timezone offset.
+- **Root cause:** String interpolation into query string without URL percent-encoding.
+- **Fix:** Switched test requests to structured query dictionaries (`params={"created_after": dt.isoformat()}`), allowing HTTP client to percent-encode offsets (`%2B00:00`).
+- **Verification:** Filter queries with temporal boundaries execute with zero validation errors.
+- **Lesson:** Always use HTTP client query parameter dictionaries rather than manual URL string interpolation when transmitting ISO datetimes.
+- **If asked in an interview:** "Raw `+` in URL query strings decodes as a space on HTTP servers. Transmitting ISO timestamps like `2026-11-06T12:00:00+00:00` in raw query strings breaks datetime parsing because `+00:00` becomes ` 00:00`. Passing parameters via structured dicts ensures proper `%2B` percent-encoding."
+- **Time cost:** ~5 min
+
+---
+
 ## Open Questions / Known Limitations
 
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`
