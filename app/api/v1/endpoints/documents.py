@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, File, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
@@ -9,14 +9,19 @@ from app.core.pagination import Page, PageParams
 from app.db.models.document import DocClassification, DocStatus
 from app.db.models.user import User
 from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate
+from app.schemas.version import VersionResponse
 from app.services.document_service import (
     create_document,
     delete_document,
     get_document,
+    list_document_versions,
     list_documents,
     restore_document,
     update_document,
+    upload_document_version,
 )
+from app.storage import get_storage
+from app.storage.base import StorageBackend
 
 router = APIRouter(tags=["documents"])
 
@@ -132,3 +137,40 @@ async def restore_document_endpoint(
 ) -> DocumentResponse:
     doc = await restore_document(db=db, actor=current_user, doc_id=doc_id)
     return DocumentResponse.model_validate(doc)
+
+
+@router.post(
+    "/documents/{doc_id}/versions",
+    response_model=VersionResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a new immutable file version",
+)
+async def upload_version_endpoint(
+    doc_id: uuid.UUID,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+) -> VersionResponse:
+    version = await upload_document_version(
+        db=db,
+        storage=storage,
+        actor=current_user,
+        doc_id=doc_id,
+        file=file,
+    )
+    return VersionResponse.model_validate(version)
+
+
+@router.get(
+    "/documents/{doc_id}/versions",
+    response_model=list[VersionResponse],
+    summary="List all immutable file versions for a document",
+)
+async def list_versions_endpoint(
+    doc_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[VersionResponse]:
+    versions = await list_document_versions(db=db, actor=current_user, doc_id=doc_id)
+    return [VersionResponse.model_validate(v) for v in versions]

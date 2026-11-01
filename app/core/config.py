@@ -1,5 +1,4 @@
-"""Application configuration via environment variables."""
-
+from functools import lru_cache
 from typing import Any
 
 from pydantic import field_validator, model_validator
@@ -102,6 +101,10 @@ class Settings(BaseSettings):
         return list(v) if isinstance(v, (list, set)) else [str(v)]
 
 
+@lru_cache
 def get_settings() -> Settings:
-    """Create and return settings instance."""
+    """Create and return cached settings instance."""
     return Settings()
+
+
+settings: Settings = get_settings()
