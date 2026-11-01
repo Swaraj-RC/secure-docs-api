@@ -24,6 +24,7 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 | 2026-11-01 | Opaque UUID storage keys with original filename metadata | Content-addressed storage (SHA as key) | Shields filesystem from user-controlled paths, avoids collisions across re-uploads, and retains original filename for download headers. |
 | 2026-11-01 | RFC 5987 / RFC 6266 dual Content-Disposition encoding | Bare ASCII filename | Preserves international UTF-8 filenames in modern browsers via filename*= while supplying sanitized ASCII fallback for legacy HTTP clients. |
 | 2026-11-01 | Storage-level offset/length streaming for byte-range requests | In-memory slicing | Prevents loading multi-megabyte files into RAM; seeks file pointer directly on disk or S3 byte range. |
+| 2026-11-01 | Controlled cross-tenant document sharing with least-privilege scoping | Strict intra-workspace sharing only | Permits external B2B collaboration/auditing for designated records without granting visibility into workspace tenant membership or other documents (ADR-0004). |
 
 ---
 
@@ -183,6 +184,18 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - **Verification:** Unit tests with mocked `aioboto3` session execute full CRUD operations against `S3Storage` with 80% branch coverage.
 - **Lesson:** For modules with optional third-party integrations, defer binding the library to the class constructor to support clean dependency injection and mocking.
 - **If asked in an interview:** "If a top-level optional import fails, the variable is unbound in globals, causing NameErrors even if later mocked in `sys.modules`. Deferring `import aioboto3` inside the class constructor allows seamless mocking during test execution without installing heavyweight cloud SDKs."
+- **Time cost:** ~5 min
+
+### 2026-11-01 — Query-time temporal filtering for document shares
+- **Area:** Authorization / Temporal Access (`app/services/share_service.py`)
+- **Symptom:** Expired document shares remained queryable via `GET /documents/{doc_id}/shares` and required defensive checks at multiple service layers.
+- **Context:** Enforcing that shares with `expires_at < now()` are immediately invalidated without requiring a background cron job.
+- **Investigation:** Examined share lookup logic: shares with past expiration timestamps were stored in the database indefinitely until explicitly deleted or updated.
+- **Root cause:** Omitting temporal filters from `list_shares` and `get_active_share` queries left expired shares visible to callers.
+- **Fix:** Integrated SQL condition `or_(expires_at.is_(None), expires_at > now())` on share listings and validated `is_share_active(share)` across all access control hooks.
+- **Verification:** `test_expired_shares_ignored_at_query_time` confirms expired shares immediately return 404 to grantees and are omitted from active share lists.
+- **Lesson:** Always apply query-time temporal bounds to time-limited access tokens and grants so expiration takes effect instantaneously without reliance on periodic janitor jobs.
+- **If asked in an interview:** "Instead of relying on a background worker to clean up expired rows, we filter `or_(expires_at.is_(None), expires_at > now())` at query time and evaluate timestamps in policy checks, ensuring instant, zero-latency access revocation."
 - **Time cost:** ~5 min
 
 ---
