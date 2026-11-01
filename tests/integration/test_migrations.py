@@ -7,7 +7,11 @@ def test_alembic_migrations_revisions_chain() -> None:
     script = ScriptDirectory.from_config(config)
     heads = script.get_heads()
     assert len(heads) == 1
-    assert heads[0] == "0003_workspaces"
+    assert heads[0] == "0004_documents"
+
+    rev_0004 = script.get_revision("0004_documents")
+    assert rev_0004 is not None
+    assert rev_0004.down_revision == "0003_workspaces"
 
     rev_0003 = script.get_revision("0003_workspaces")
     assert rev_0003 is not None
