@@ -10,6 +10,7 @@ from app.core.pagination import Page, PageParams
 from app.db.models.document import DocClassification, DocStatus
 from app.db.models.user import User
 from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate
+from app.schemas.share import ShareCreate, ShareResponse
 from app.schemas.version import VersionResponse
 from app.services.document_service import (
     create_document,
@@ -23,6 +24,7 @@ from app.services.document_service import (
     upload_document_version,
 )
 from app.services.download_service import format_content_disposition, parse_range_header
+from app.services.share_service import grant_share, list_shares, revoke_share
 from app.storage import get_storage
 from app.storage.base import StorageBackend
 
@@ -237,3 +239,47 @@ async def download_version_endpoint(
         media_type=version.mime_type,
         headers=headers,
     )
+
+
+@router.post(
+    "/documents/{doc_id}/shares",
+    response_model=ShareResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Grant or update document access share",
+)
+async def grant_share_endpoint(
+    doc_id: uuid.UUID,
+    payload: ShareCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> ShareResponse:
+    share = await grant_share(db=db, actor=current_user, doc_id=doc_id, payload=payload)
+    return ShareResponse.model_validate(share)
+
+
+@router.get(
+    "/documents/{doc_id}/shares",
+    response_model=list[ShareResponse],
+    summary="List active document shares",
+)
+async def list_shares_endpoint(
+    doc_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> list[ShareResponse]:
+    shares = await list_shares(db=db, actor=current_user, doc_id=doc_id)
+    return [ShareResponse.model_validate(s) for s in shares]
+
+
+@router.delete(
+    "/documents/{doc_id}/shares/{share_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Revoke a document share",
+)
+async def revoke_share_endpoint(
+    doc_id: uuid.UUID,
+    share_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    await revoke_share(db=db, actor=current_user, doc_id=doc_id, share_id=share_id)

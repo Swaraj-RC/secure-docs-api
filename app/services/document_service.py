@@ -22,9 +22,11 @@ from app.policies.access import (
     can_view_document,
     can_view_workspace,
     enforce_document_access,
+    is_share_active,
 )
 from app.schemas.document import DocumentCreate, DocumentUpdate
 from app.services.file_validation import process_streaming_upload
+from app.services.share_service import get_active_share
 from app.storage.base import StorageBackend
 
 ALLOWED_SORT_FIELDS = {
@@ -92,13 +94,16 @@ async def get_document(
 
     member = await get_workspace_membership(db, doc.workspace_id, actor.id)
     is_member = member is not None
+    share = await get_active_share(db, doc.id, actor.id)
+    is_authorized = is_member or (share is not None and is_share_active(share))
+
     can_view = can_view_document(
         actor_id=actor.id,
         doc=doc,
         role=member.role if member else None,
-        share=None,
+        share=share,
     )
-    enforce_document_access(can_view, is_member, "view document")
+    enforce_document_access(can_view, is_authorized, "view document")
     return doc
 
 
@@ -194,13 +199,16 @@ async def update_document(
 
     member = await get_workspace_membership(db, doc.workspace_id, actor.id)
     is_member = member is not None
+    share = await get_active_share(db, doc.id, actor.id)
+    is_authorized = is_member or (share is not None and is_share_active(share))
+
     can_edit = can_edit_document(
         actor_id=actor.id,
         doc=doc,
         role=member.role if member else None,
-        share=None,
+        share=share,
     )
-    enforce_document_access(can_edit, is_member, "edit document")
+    enforce_document_access(can_edit, is_authorized, "edit document")
 
     updated = False
     if payload.title is not None:
@@ -285,13 +293,16 @@ async def upload_document_version(
 
     member = await get_workspace_membership(db, doc.workspace_id, actor.id)
     is_member = member is not None
+    share = await get_active_share(db, doc.id, actor.id)
+    is_authorized = is_member or (share is not None and is_share_active(share))
+
     can_upload = can_upload_version(
         actor_id=actor.id,
         doc=doc,
         role=member.role if member else None,
-        share=None,
+        share=share,
     )
-    enforce_document_access(can_upload, is_member, "upload version to document")
+    enforce_document_access(can_upload, is_authorized, "upload version to document")
 
     validated = await process_streaming_upload(file)
 
@@ -362,13 +373,17 @@ async def get_document_version_for_download(
 ) -> tuple[Document, DocumentVersion]:
     doc = await get_document(db=db, actor=actor, doc_id=doc_id)
     member = await get_workspace_membership(db, doc.workspace_id, actor.id)
+    is_member = member is not None
+    share = await get_active_share(db, doc.id, actor.id)
+    is_authorized = is_member or (share is not None and is_share_active(share))
+
     can_dl = can_download_document(
         actor_id=actor.id,
         doc=doc,
         role=member.role if member else None,
-        share=None,
+        share=share,
     )
-    enforce_document_access(can_dl, member is not None, "download document")
+    enforce_document_access(can_dl, is_authorized, "download document")
 
     stmt = (
         select(DocumentVersion)
