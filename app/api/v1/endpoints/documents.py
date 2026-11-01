@@ -6,7 +6,9 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import get_settings
 from app.core.pagination import Page, PageParams
+from app.core.rate_limit import limiter
 from app.db.models.document import DocClassification, DocStatus
 from app.db.models.user import User
 from app.schemas.document import DocumentCreate, DocumentResponse, DocumentUpdate
@@ -28,6 +30,7 @@ from app.services.share_service import grant_share, list_shares, revoke_share
 from app.storage import get_storage
 from app.storage.base import StorageBackend
 
+settings = get_settings()
 router = APIRouter(tags=["documents"])
 
 
@@ -48,19 +51,33 @@ async def create_document_endpoint(
 
 
 @router.get(
+    "/documents/{doc_id}",
+    response_model=DocumentResponse,
+    summary="Retrieve document metadata",
+)
+async def get_document_endpoint(
+    doc_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DocumentResponse:
+    doc = await get_document(db=db, actor=current_user, doc_id=doc_id)
+    return DocumentResponse.model_validate(doc)
+
+
+@router.get(
     "/workspaces/{ws_id}/documents",
     response_model=Page[DocumentResponse],
-    summary="List and filter documents in a workspace",
+    summary="Search, filter, and list documents in a workspace",
 )
 async def list_documents_endpoint(
     ws_id: uuid.UUID,
-    q: str | None = Query(default=None, description="Search term"),
-    status: DocStatus | None = Query(default=None, description="Status"),
-    classification: DocClassification | None = Query(default=None, description="Classification"),
-    owner_id: uuid.UUID | None = Query(default=None, description="Owner ID"),
-    created_after: datetime | None = Query(default=None, description="Start date"),
-    created_before: datetime | None = Query(default=None, description="End date"),
-    sort: str = Query(default="-created_at", description="Sort expression: [+/-]col"),
+    q: str | None = Query(default=None),
+    status_filter: DocStatus | None = Query(default=None, alias="status"),
+    classification: DocClassification | None = Query(default=None),
+    owner_id: uuid.UUID | None = Query(default=None),
+    created_after: datetime | None = Query(default=None),
+    created_before: datetime | None = Query(default=None),
+    sort: str = Query(default="-created_at"),
     pagination: PageParams = Depends(),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -71,35 +88,15 @@ async def list_documents_endpoint(
         ws_id=ws_id,
         pagination=pagination,
         q=q,
-        status=status,
+        status=status_filter,
         classification=classification,
         owner_id=owner_id,
         created_after=created_after,
         created_before=created_before,
         sort=sort,
     )
-    items = [DocumentResponse.model_validate(item) for item in page.items]
-    return Page(
-        items=items,
-        page=page.page,
-        size=page.size,
-        total=page.total,
-        pages=page.pages,
-    )
-
-
-@router.get(
-    "/documents/{doc_id}",
-    response_model=DocumentResponse,
-    summary="Get document metadata",
-)
-async def get_document_endpoint(
-    doc_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-) -> DocumentResponse:
-    doc = await get_document(db=db, actor=current_user, doc_id=doc_id)
-    return DocumentResponse.model_validate(doc)
+    items = [DocumentResponse.model_validate(d) for d in page.items]
+    return Page.create(items=items, total=page.total, params=pagination)
 
 
 @router.patch(
@@ -150,7 +147,9 @@ async def restore_document_endpoint(
     status_code=status.HTTP_201_CREATED,
     summary="Upload a new immutable file version",
 )
+@limiter.limit(settings.RATE_LIMIT_UPLOAD)
 async def upload_version_endpoint(
+    request: Request,
     doc_id: uuid.UUID,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -193,7 +192,7 @@ async def download_version_endpoint(
     db: AsyncSession = Depends(get_db),
     storage: StorageBackend = Depends(get_storage),
 ) -> Response:
-    _doc, version = await get_document_version_for_download(
+    _, version = await get_document_version_for_download(
         db=db,
         actor=current_user,
         doc_id=doc_id,
@@ -245,9 +244,9 @@ async def download_version_endpoint(
     "/documents/{doc_id}/shares",
     response_model=ShareResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Grant or update document access share",
+    summary="Grant document share to another user",
 )
-async def grant_share_endpoint(
+async def create_share_endpoint(
     doc_id: uuid.UUID,
     payload: ShareCreate,
     current_user: User = Depends(get_current_user),
@@ -260,7 +259,7 @@ async def grant_share_endpoint(
 @router.get(
     "/documents/{doc_id}/shares",
     response_model=list[ShareResponse],
-    summary="List active document shares",
+    summary="List active shares for a document",
 )
 async def list_shares_endpoint(
     doc_id: uuid.UUID,
@@ -274,7 +273,7 @@ async def list_shares_endpoint(
 @router.delete(
     "/documents/{doc_id}/shares/{share_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    summary="Revoke a document share",
+    summary="Revoke document share",
 )
 async def revoke_share_endpoint(
     doc_id: uuid.UUID,
