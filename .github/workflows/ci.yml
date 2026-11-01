@@ -128,9 +128,9 @@ jobs:
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
         run: |
-          alembic upgrade head
-          alembic downgrade base
-          alembic upgrade head
+          python -m alembic upgrade head
+          python -m alembic downgrade base
+          python -m alembic upgrade head
 
   docker-build:
     runs-on: ubuntu-latest
