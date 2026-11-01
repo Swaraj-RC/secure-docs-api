@@ -96,6 +96,18 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - **If asked in an interview:** "We use PostgreSQL-specific types like CITEXT for case-insensitive uniqueness and UUID for keys. To keep local test suites runnable in under a second without requiring a live Docker daemon, we registered SQLAlchemy compiler shims that map those types to SQLite primitives during test fixture initialization."
 - **Time cost:** ~15 min
 
+### 2026-11-01 — Offset-naive vs offset-aware datetime comparison across SQL dialects
+- **Area:** Authentication / Database date handling (`app/services/auth_service.py`)
+- **Symptom:** `test_login_invalid_credentials_and_lockout` and `test_refresh_token_rotation_and_reuse_detection` failed with `TypeError: can't compare offset-naive and offset-aware datetimes`.
+- **Context:** Comparing `user.locked_until` and `token_record.expires_at` loaded from database against `now = datetime.now(UTC)`.
+- **Investigation:** Examined traceback: the exception was raised directly on `user.locked_until > now`. While PostgreSQL returns timezone-aware datetimes for `TIMESTAMPTZ`, SQLite stores datetimes without timezone metadata and returns naive objects upon ORM deserialization.
+- **Root cause:** Direct comparison between Python `datetime.now(UTC)` (aware) and ORM-deserialized datetimes from SQLite (naive) triggers a Python `TypeError`.
+- **Fix:** Implemented `_to_utc(dt: datetime) -> datetime` in `app/services/auth_service.py` to ensure `dt.replace(tzinfo=UTC)` is called whenever `dt.tzinfo is None` prior to comparison.
+- **Verification:** Both account lockout expiry and refresh token expiration tests run and pass without type errors.
+- **Lesson:** Never compare `datetime.now(UTC)` directly with database datetime fields without normalizing `tzinfo`, as differing SQL dialects handle timestamp timezones differently.
+- **If asked in an interview:** "SQLite drops timezone offsets on serialization, returning naive datetimes. Comparing `now(UTC)` with a naive datetime throws a `TypeError`. We normalized all timestamps with a helper that coerces naive values to UTC before any comparison."
+- **Time cost:** ~10 min
+
 ---
 
 ## Open Questions / Known Limitations
