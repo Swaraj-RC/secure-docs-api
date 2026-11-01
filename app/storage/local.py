@@ -48,7 +48,12 @@ class LocalStorage:
 
         return total_bytes
 
-    async def get(self, key: str) -> AsyncIterator[bytes]:
+    async def get(
+        self,
+        key: str,
+        offset: int = 0,
+        length: int | None = None,
+    ) -> AsyncIterator[bytes]:
         target = self._resolve(key)
         if not target.is_file():
             raise NotFoundError(
@@ -61,8 +66,24 @@ class LocalStorage:
         def _file_chunk_reader() -> AsyncIterator[bytes]:
             async def _generator() -> AsyncIterator[bytes]:
                 with open(target, "rb") as f:
-                    while chunk := f.read(chunk_size):
+                    if offset > 0:
+                        f.seek(offset)
+                    bytes_remaining = length
+
+                    while True:
+                        if bytes_remaining is not None and bytes_remaining <= 0:
+                            break
+                        read_bytes = (
+                            min(chunk_size, bytes_remaining)
+                            if bytes_remaining is not None
+                            else chunk_size
+                        )
+                        chunk = f.read(read_bytes)
+                        if not chunk:
+                            break
                         yield chunk
+                        if bytes_remaining is not None:
+                            bytes_remaining -= len(chunk)
 
             return _generator()
 

@@ -125,6 +125,23 @@ class RateLimitError(AppError):
         )
 
 
+class RangeNotSatisfiableError(AppError):
+    """Range request cannot be satisfied (416)."""
+
+    def __init__(
+        self,
+        message: str = "Requested range not satisfiable",
+        code: str = "RANGE_NOT_SATISFIABLE",
+        details: list[dict[str, Any]] | None = None,
+    ) -> None:
+        super().__init__(
+            code=code,
+            message=message,
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            details=details,
+        )
+
+
 class ValidationError(AppError):
     """Business-logic validation error (422)."""
 

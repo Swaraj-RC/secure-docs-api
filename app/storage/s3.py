@@ -1,16 +1,12 @@
 import contextlib
+import importlib.util
 from collections.abc import AsyncIterator
 from typing import Any
 
 from app.core.config import settings
 from app.core.errors import NotFoundError
 
-try:
-    import aioboto3  # type: ignore[import-not-found]
-
-    HAS_AIOBOTO3 = True
-except ImportError:
-    HAS_AIOBOTO3 = False
+HAS_AIOBOTO3 = importlib.util.find_spec("aioboto3") is not None
 
 
 class S3Storage:
@@ -58,10 +54,20 @@ class S3Storage:
             )
         return len(data)
 
-    async def get(self, key: str) -> AsyncIterator[bytes]:
+    async def get(
+        self,
+        key: str,
+        offset: int = 0,
+        length: int | None = None,
+    ) -> AsyncIterator[bytes]:
         async with self.session.client("s3", **self._client_kwargs()) as s3:
+            params: dict[str, Any] = {"Bucket": self.bucket, "Key": key}
+            if offset > 0 or length is not None:
+                end_byte = f"{offset + length - 1}" if length is not None else ""
+                params["Range"] = f"bytes={offset}-{end_byte}"
+
             try:
-                response = await s3.get_object(Bucket=self.bucket, Key=key)
+                response = await s3.get_object(**params)
             except Exception as e:
                 raise NotFoundError(f"Object {key} not found in S3", code="FILE_NOT_FOUND") from e
 

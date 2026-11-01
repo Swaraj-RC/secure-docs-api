@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
@@ -14,12 +15,14 @@ from app.services.document_service import (
     create_document,
     delete_document,
     get_document,
+    get_document_version_for_download,
     list_document_versions,
     list_documents,
     restore_document,
     update_document,
     upload_document_version,
 )
+from app.services.download_service import format_content_disposition, parse_range_header
 from app.storage import get_storage
 from app.storage.base import StorageBackend
 
@@ -174,3 +177,63 @@ async def list_versions_endpoint(
 ) -> list[VersionResponse]:
     versions = await list_document_versions(db=db, actor=current_user, doc_id=doc_id)
     return [VersionResponse.model_validate(v) for v in versions]
+
+
+@router.get(
+    "/documents/{doc_id}/versions/{vid}/download",
+    summary="Download file version with range request support and security headers",
+)
+async def download_version_endpoint(
+    doc_id: uuid.UUID,
+    vid: uuid.UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    storage: StorageBackend = Depends(get_storage),
+) -> Response:
+    _doc, version = await get_document_version_for_download(
+        db=db,
+        actor=current_user,
+        doc_id=doc_id,
+        version_id=vid,
+    )
+
+    disposition = format_content_disposition(version.original_filename)
+    range_header = request.headers.get("Range")
+
+    base_headers = {
+        "Content-Disposition": disposition,
+        "X-Content-Type-Options": "nosniff",
+        "Accept-Ranges": "bytes",
+        "ETag": f'"{version.checksum_sha256}"',
+    }
+
+    if range_header:
+        byte_range = parse_range_header(range_header, version.size_bytes)
+        if byte_range:
+            start, end = byte_range
+            length = end - start + 1
+            stream = await storage.get(version.storage_key, offset=start, length=length)
+            headers = {
+                **base_headers,
+                "Content-Range": f"bytes {start}-{end}/{version.size_bytes}",
+                "Content-Length": str(length),
+            }
+            return StreamingResponse(
+                stream,
+                status_code=status.HTTP_206_PARTIAL_CONTENT,
+                media_type=version.mime_type,
+                headers=headers,
+            )
+
+    stream = await storage.get(version.storage_key)
+    headers = {
+        **base_headers,
+        "Content-Length": str(version.size_bytes),
+    }
+    return StreamingResponse(
+        stream,
+        status_code=status.HTTP_200_OK,
+        media_type=version.mime_type,
+        headers=headers,
+    )

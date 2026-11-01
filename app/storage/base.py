@@ -10,8 +10,13 @@ class StorageBackend(Protocol):
         """Store streaming or raw bytes under key and return size in bytes."""
         ...
 
-    async def get(self, key: str) -> AsyncIterator[bytes]:
-        """Stream data chunks by key."""
+    async def get(
+        self,
+        key: str,
+        offset: int = 0,
+        length: int | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Stream data chunks by key with optional range offset and length."""
         ...
 
     async def delete(self, key: str) -> None:
