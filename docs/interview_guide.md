@@ -419,3 +419,4 @@ If a user uploads `"Quarterly_Report.pdf"`, we save it on disk as `storage/works
 4. **Antivirus Scanning Daemon:**
    - *Current:* The upload pipeline features an abstract `AntivirusScanner` interface with clean mocking.
    - *Improvement:* Connect the hook to a real ClamAV daemon (`clamd`) via Unix domain sockets to scan file buffers for malicious signatures prior to committing the transaction.
+
