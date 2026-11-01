@@ -320,6 +320,20 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 
 ---
 
+### 2026-11-01 — Alembic async engine bypassed set_main_option URL via raw section dict
+- **Area:** Database Migrations (`alembic/env.py`)
+- **Symptom:** `alembic upgrade head` in CI `migrations` job aborted with driver error pointing to `driver://user:pass@localhost/dbname`.
+- **Context:** Running Alembic CLI migrations in GitHub Actions with `DATABASE_URL` pointing to PostgreSQL 16 service container.
+- **Investigation:** In `alembic/env.py`, `run_async_migrations` initialized the engine using `async_engine_from_config(config.get_section(...), prefix="sqlalchemy.")`. In Alembic, `config.get_section()` returns the raw parsed dictionary from `alembic.ini`, completely ignoring options updated dynamically via `config.set_main_option("sqlalchemy.url", ...)`.
+- **Root cause:** Decoupling between Alembic's main option registry and section configuration dictionaries.
+- **Fix:** Assigned `section["sqlalchemy.url"] = config.get_main_option("sqlalchemy.url")` on the dictionary copy before constructing the async engine.
+- **Verification:** Both programmatic fixtures and CLI invocations (`alembic upgrade head -> downgrade base -> upgrade head`) successfully target the active database.
+- **Lesson:** When using `async_engine_from_config` in `alembic/env.py`, always explicitly inject `config.get_main_option("sqlalchemy.url")` into the section dictionary.
+- **If asked in an interview:** "`async_engine_from_config` reads the raw section dictionary from `alembic.ini`, not the dynamic values updated via `config.set_main_option()`. In order for environment variable overrides like `DATABASE_URL` to work, you must explicitly copy the resolved main option URL into the dictionary before passing it to the engine factory."
+- **Time cost:** ~10 min
+
+---
+
 ## Open Questions / Known Limitations
 
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`
