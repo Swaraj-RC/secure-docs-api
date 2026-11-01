@@ -21,6 +21,7 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 | 2026-11-01 | Multi-stage Docker build, non-root user | Single-stage | Smaller image (~200MB vs ~800MB), follows security best practices. Builder stage discarded after pip install. |
 | 2026-11-01 | Deny-by-default centralized authorization policy | Distributed endpoint checks | Centralizes all RBAC and ACL logic in one pure-function module with zero ORM coupling, preventing data leakage. |
 | 2026-11-01 | GIN pg_trgm index + ILIKE for document search | tsvector / tsquery, plain B-Tree | Fast substring matching for partial codes/vendor names without linguistic tokenization distortion; preserved SQLite test compatibility. |
+| 2026-11-01 | Opaque UUID storage keys with original filename metadata | Content-addressed storage (SHA as key) | Shields filesystem from user-controlled paths, avoids collisions across re-uploads, and retains original filename for download headers. |
 
 ---
 
@@ -153,9 +154,33 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - **Investigation:** `DocumentAccessProtocol` defined mutable instance attributes: `classification: str`, `status: str`. In Python typing, mutable protocol attributes are invariant: only exact `str` is accepted, not subtypes like `DocClassification(StrEnum)`.
 - **Root cause:** Defining protocol attributes as simple variables rather than `@property` getters enforces strict type invariance.
 - **Fix:** Changed protocol attributes to read-only property getters (`@property def classification(self) -> str: ...`).
-- **Verification:** mypy passed with zero errors across all 60 source files.
+- **Verification:** mypy passed with zero errors across all source files.
 - **Lesson:** In typing protocols, always define read-only attributes using `@property` to allow subtype covariance.
 - **If asked in an interview:** "Plain attribute annotations on a `Protocol` are invariant in Python typing, so a subclass like `StrEnum` won't satisfy a `str` attribute. Defining `@property` on the protocol makes the attribute covariant and read-only, matching enum subclasses smoothly."
+- **Time cost:** ~5 min
+
+### 2026-11-01 — Monkeypatching Pydantic Settings property on singleton instance
+- **Area:** Testing / Configuration (`tests/integration/test_uploads.py`)
+- **Symptom:** `AttributeError: property 'max_upload_size_bytes' of 'Settings' object has no setter` during pytest monkeypatching.
+- **Context:** Overriding maximum allowed file upload size in unit test to verify oversized file rejection without allocating 25MB payloads.
+- **Investigation:** `settings` is an instantiated singleton of `Settings`. In Python, an instance attribute assigned over a class property descriptor fails if the property has no setter. Furthermore, mutating `MAX_UPLOAD_SIZE_MB = 0` persisted into subsequent test runs on the cached singleton.
+- **Root cause:** Attempting to assign directly to a read-only property on an instance rather than patching the property descriptor on the class definition.
+- **Fix:** Used `monkeypatch.setattr(Settings, "max_upload_size_bytes", property(lambda self: 100))` on the `Settings` class, ensuring automatic teardown restoration.
+- **Verification:** `test_oversized_file_rejected` passes and resets clean state for all subsequent test cases.
+- **Lesson:** When overriding computed property descriptors in tests, patch the descriptor on the target class rather than the instance to allow clean setterless overriding and automatic restoration.
+- **If asked in an interview:** "Pydantic properties without setters cannot be patched directly on the instance object. Patching the property descriptor on the class with `monkeypatch.setattr(Settings, ...)` cleanly mocks the dynamic property and restores it after test execution."
+- **Time cost:** ~5 min
+
+### 2026-11-01 — Module namespace isolation for optional aioboto3 dependency
+- **Area:** Storage / Dependency Management (`app/storage/s3.py`)
+- **Symptom:** `NameError: name 'aioboto3' is not defined` when mocking optional S3 backend without `aioboto3` installed on the host.
+- **Context:** Writing unit tests for `S3Storage` to achieve high branch coverage on environments where AWS SDK is not locally installed.
+- **Investigation:** Top-level `try: import aioboto3 except ImportError:` did not bind `aioboto3` in module globals when the package was missing. When tests subsequently injected a mock into `sys.modules["aioboto3"]`, calling `aioboto3.Session()` failed because the global name was never created.
+- **Root cause:** Failed top-level import leaves the variable unbound in module globals.
+- **Fix:** Performed lazy import inside `S3Storage.__init__` (`import aioboto3; self.session = aioboto3.Session()`) after verifying `HAS_AIOBOTO3`.
+- **Verification:** Unit tests with mocked `aioboto3` session execute full CRUD operations against `S3Storage` with 80% branch coverage.
+- **Lesson:** For modules with optional third-party integrations, defer binding the library to the class constructor to support clean dependency injection and mocking.
+- **If asked in an interview:** "If a top-level optional import fails, the variable is unbound in globals, causing NameErrors even if later mocked in `sys.modules`. Deferring `import aioboto3` inside the class constructor allows seamless mocking during test execution without installing heavyweight cloud SDKs."
 - **Time cost:** ~5 min
 
 ---
@@ -165,7 +190,7 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`
 - [ ] Rate limiting is in-memory (single instance only) — Redis backend needed for horizontal scaling
 - [ ] No email delivery — will log tokens to console
-- [ ] S3 storage implementation is Day 7; not tested in CI compose
+- [ ] S3 storage implementation is Day 7; tested with mocks, optional for cloud deployment
 - [ ] Antivirus hook is a stub interface
 
 ## What I'd Do Next With More Time

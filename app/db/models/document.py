@@ -60,6 +60,12 @@ class Document(Base):
     )
     current_version_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
+        ForeignKey(
+            "document_versions.id",
+            ondelete="SET NULL",
+            use_alter=True,
+            name="fk_current_version",
+        ),
         nullable=True,
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
@@ -86,3 +92,15 @@ class Document(Base):
     workspace = relationship("Workspace", backref="documents")
     owner = relationship("User", foreign_keys=[owner_id])
     creator = relationship("User", foreign_keys=[created_by])
+    versions = relationship(
+        "DocumentVersion",
+        back_populates="document",
+        cascade="all, delete-orphan",
+        foreign_keys="DocumentVersion.document_id",
+        order_by="DocumentVersion.version_number.desc()",
+    )
+    current_version = relationship(
+        "DocumentVersion",
+        foreign_keys=[current_version_id],
+        post_update=True,
+    )

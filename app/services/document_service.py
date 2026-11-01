@@ -1,6 +1,10 @@
+import contextlib
+import os
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
+from fastapi import UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -8,15 +12,19 @@ from app.core.errors import ForbiddenError, NotFoundError, ValidationError
 from app.core.pagination import Page, PageParams
 from app.db.models.document import DocClassification, DocStatus, Document
 from app.db.models.user import User
+from app.db.models.version import DocumentVersion
 from app.db.models.workspace import WorkspaceMember, WorkspaceRole
 from app.policies.access import (
     can_create_document,
     can_edit_document,
+    can_upload_version,
     can_view_document,
     can_view_workspace,
     enforce_document_access,
 )
 from app.schemas.document import DocumentCreate, DocumentUpdate
+from app.services.file_validation import process_streaming_upload
+from app.storage.base import StorageBackend
 
 ALLOWED_SORT_FIELDS = {
     "created_at": Document.created_at,
@@ -259,3 +267,88 @@ async def restore_document(
     await db.commit()
     await db.refresh(doc)
     return doc
+
+
+async def upload_document_version(
+    db: AsyncSession,
+    storage: StorageBackend,
+    actor: User,
+    doc_id: uuid.UUID,
+    file: UploadFile,
+) -> DocumentVersion:
+    stmt = select(Document).where(Document.id == doc_id).where(Document.deleted_at.is_(None))
+    result = await db.scalars(stmt)
+    doc = result.first()
+    if not doc:
+        raise NotFoundError("Document not found", code="DOCUMENT_NOT_FOUND")
+
+    member = await get_workspace_membership(db, doc.workspace_id, actor.id)
+    is_member = member is not None
+    can_upload = can_upload_version(
+        actor_id=actor.id,
+        doc=doc,
+        role=member.role if member else None,
+        share=None,
+    )
+    enforce_document_access(can_upload, is_member, "upload version to document")
+
+    validated = await process_streaming_upload(file)
+
+    async def _file_stream() -> AsyncIterator[bytes]:
+        with open(validated.temp_path, "rb") as f:
+            while chunk := f.read(64 * 1024):
+                yield chunk
+
+    storage_saved = False
+    try:
+        await storage.put(validated.storage_key, _file_stream())
+        storage_saved = True
+
+        # Compute next version number
+        ver_stmt = select(func.coalesce(func.max(DocumentVersion.version_number), 0)).where(
+            DocumentVersion.document_id == doc_id
+        )
+        max_ver = await db.scalar(ver_stmt) or 0
+        next_ver = max_ver + 1
+
+        version = DocumentVersion(
+            document_id=doc_id,
+            version_number=next_ver,
+            storage_key=validated.storage_key,
+            original_filename=validated.original_filename,
+            mime_type=validated.mime_type,
+            size_bytes=validated.size_bytes,
+            checksum_sha256=validated.checksum_sha256,
+            uploaded_by=actor.id,
+        )
+        db.add(version)
+        await db.flush()
+
+        doc.current_version_id = version.id
+        doc.updated_at = datetime.now(UTC)
+        await db.commit()
+        await db.refresh(version)
+        return version
+    except Exception:
+        if storage_saved:
+            await storage.delete(validated.storage_key)
+        raise
+    finally:
+        if validated.temp_path.exists():
+            with contextlib.suppress(OSError):
+                os.remove(validated.temp_path)
+
+
+async def list_document_versions(
+    db: AsyncSession,
+    actor: User,
+    doc_id: uuid.UUID,
+) -> list[DocumentVersion]:
+    doc = await get_document(db=db, actor=actor, doc_id=doc_id)
+    stmt = (
+        select(DocumentVersion)
+        .where(DocumentVersion.document_id == doc.id)
+        .order_by(DocumentVersion.version_number.desc())
+    )
+    result = await db.scalars(stmt)
+    return list(result.all())
