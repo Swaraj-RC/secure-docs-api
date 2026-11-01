@@ -18,3 +18,4 @@ def test_uuid_mixin() -> None:
     assert hasattr(model, "created_at")
     assert hasattr(model, "updated_at")
     assert model.id is None or isinstance(model.id, uuid.UUID)
+
