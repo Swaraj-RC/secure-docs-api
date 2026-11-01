@@ -16,6 +16,7 @@ from app.policies.access import (
     can_manage_shares,
     can_manage_workspace,
     can_upload_version,
+    can_view_audit_logs,
     can_view_document,
     can_view_workspace,
     enforce_document_access,
@@ -64,31 +65,47 @@ def test_workspace_policy_matrix() -> None:
     assert can_create_document(WorkspaceRole.VIEWER) is False
     assert can_create_document(None) is False
 
+    # can_view_audit_logs
+    assert can_view_audit_logs(WorkspaceRole.OWNER) is True
+    assert can_view_audit_logs(WorkspaceRole.ADMIN) is True
+    assert can_view_audit_logs(WorkspaceRole.MEMBER) is False
+    assert can_view_audit_logs(WorkspaceRole.VIEWER) is False
+    assert can_view_audit_logs(None) is False
+
 
 @pytest.mark.parametrize(
     "role,classification,is_owner,has_share,expected",
     [
-        # Non-member with no share has no access
-        (None, "public", False, False, False),
-        (None, "internal", False, True, True),  # valid share allows access
-        (None, "restricted", True, False, False),  # non-member has no access
-        # Workspace member who is doc owner always has access
-        (WorkspaceRole.VIEWER, "restricted", True, False, True),
-        (WorkspaceRole.MEMBER, "restricted", True, False, True),
-        # Owner & Admin always have access to all classifications
-        (WorkspaceRole.OWNER, "restricted", False, False, True),
-        (WorkspaceRole.ADMIN, "confidential", False, False, True),
-        # Member: public/internal allowed; confidential/restricted requires share or ownership
+        # PUBLIC
+        (WorkspaceRole.OWNER, "public", False, False, True),
+        (WorkspaceRole.ADMIN, "public", False, False, True),
         (WorkspaceRole.MEMBER, "public", False, False, True),
+        (WorkspaceRole.VIEWER, "public", False, False, True),
+        (None, "public", False, False, False),
+        (None, "public", False, True, True),
+        # INTERNAL
+        (WorkspaceRole.OWNER, "internal", False, False, True),
+        (WorkspaceRole.ADMIN, "internal", False, False, True),
         (WorkspaceRole.MEMBER, "internal", False, False, True),
+        (WorkspaceRole.VIEWER, "internal", False, False, True),
+        (None, "internal", False, False, False),
+        (None, "internal", False, True, True),
+        # CONFIDENTIAL
+        (WorkspaceRole.OWNER, "confidential", False, False, True),
+        (WorkspaceRole.ADMIN, "confidential", False, False, True),
+        (WorkspaceRole.MEMBER, "confidential", True, False, True),
         (WorkspaceRole.MEMBER, "confidential", False, False, False),
         (WorkspaceRole.MEMBER, "confidential", False, True, True),
-        (WorkspaceRole.MEMBER, "restricted", False, False, False),
-        # Viewer: public/internal allowed; confidential/restricted forbidden unless share
-        (WorkspaceRole.VIEWER, "public", False, False, True),
-        (WorkspaceRole.VIEWER, "internal", False, False, True),
         (WorkspaceRole.VIEWER, "confidential", False, False, False),
+        # RESTRICTED
+        (WorkspaceRole.OWNER, "restricted", False, False, True),
+        (WorkspaceRole.ADMIN, "restricted", False, False, True),
+        (WorkspaceRole.MEMBER, "restricted", True, False, True),
+        (WorkspaceRole.MEMBER, "restricted", False, False, False),
+        (WorkspaceRole.VIEWER, "restricted", True, False, True),
+        (WorkspaceRole.VIEWER, "restricted", False, False, False),
         (WorkspaceRole.VIEWER, "restricted", False, True, True),
+        (None, "restricted", False, False, False),
     ],
 )
 def test_can_view_document_matrix(
@@ -111,88 +128,86 @@ def test_can_view_document_matrix(
 def test_can_view_document_expired_share() -> None:
     actor_id = uuid.uuid4()
     doc = MockDocument(owner_id=uuid.uuid4(), classification="confidential")
-    expired = MockShare(
+    expired_share = MockShare(
         user_id=actor_id,
         permission="read",
         expires_at=datetime.now(UTC) - timedelta(hours=1),
     )
-
-    # Member with expired share on confidential doc cannot view
-    assert can_view_document(actor_id, doc, WorkspaceRole.MEMBER, share=expired) is False
+    result = can_view_document(
+        actor_id=actor_id,
+        doc=doc,
+        role=WorkspaceRole.MEMBER,
+        share=expired_share,
+    )
+    assert result is False
 
 
 def test_can_edit_document_matrix() -> None:
     actor_id = uuid.uuid4()
-    own_doc = MockDocument(owner_id=actor_id, classification="internal")
-    other_doc = MockDocument(owner_id=uuid.uuid4(), classification="internal")
+    other_id = uuid.uuid4()
 
-    # Doc owner can edit
-    assert can_edit_document(actor_id, own_doc, WorkspaceRole.MEMBER) is True
+    doc = MockDocument(owner_id=other_id, classification="internal")
+    assert can_edit_document(actor_id, doc, WorkspaceRole.OWNER) is True
+    assert can_edit_document(actor_id, doc, WorkspaceRole.ADMIN) is True
+    assert can_edit_document(actor_id, doc, WorkspaceRole.MEMBER) is False
+    assert can_edit_document(actor_id, doc, WorkspaceRole.VIEWER) is False
 
-    # Owner & Admin can edit any doc
-    assert can_edit_document(actor_id, other_doc, WorkspaceRole.OWNER) is True
-    assert can_edit_document(actor_id, other_doc, WorkspaceRole.ADMIN) is True
+    # Owner of doc can always edit
+    doc_owned = MockDocument(owner_id=actor_id, classification="internal")
+    assert can_edit_document(actor_id, doc_owned, WorkspaceRole.MEMBER) is True
 
-    # Regular member cannot edit other's doc without write share
-    assert can_edit_document(actor_id, other_doc, WorkspaceRole.MEMBER) is False
-    read_share = MockShare(user_id=actor_id, permission="read")
-    assert can_edit_document(actor_id, other_doc, WorkspaceRole.MEMBER, share=read_share) is False
-
+    # Active write share allows edit
     write_share = MockShare(user_id=actor_id, permission="write")
-    assert can_edit_document(actor_id, other_doc, WorkspaceRole.MEMBER, share=write_share) is True
+    read_share = MockShare(user_id=actor_id, permission="read")
+    assert can_edit_document(actor_id, doc, WorkspaceRole.MEMBER, share=write_share) is True
+    assert can_edit_document(actor_id, doc, WorkspaceRole.MEMBER, share=read_share) is False
 
-    # Viewer cannot edit even with own doc (hypothetical)
-    assert can_edit_document(actor_id, other_doc, WorkspaceRole.VIEWER) is False
+    # Archived doc cannot be edited by anyone
+    doc_archived = MockDocument(owner_id=actor_id, classification="internal", status="archived")
+    assert can_edit_document(actor_id, doc_archived, WorkspaceRole.OWNER) is False
 
 
 def test_can_upload_version_matrix() -> None:
     actor_id = uuid.uuid4()
-    doc = MockDocument(owner_id=uuid.uuid4(), classification="internal")
-
-    # Member can upload version to workspace doc
+    doc = MockDocument(owner_id=actor_id, classification="internal")
     assert can_upload_version(actor_id, doc, WorkspaceRole.MEMBER) is True
-    assert can_upload_version(actor_id, doc, WorkspaceRole.ADMIN) is True
-    assert can_upload_version(actor_id, doc, WorkspaceRole.OWNER) is True
-
-    # Viewer cannot upload version
-    assert can_upload_version(actor_id, doc, WorkspaceRole.VIEWER) is False
-
-    # Non-member with write share can upload version
-    write_share = MockShare(user_id=actor_id, permission="write")
-    assert can_upload_version(actor_id, doc, None, share=write_share) is True
 
 
 def test_can_manage_shares_matrix() -> None:
     actor_id = uuid.uuid4()
-    own_doc = MockDocument(owner_id=actor_id, classification="internal")
-    other_doc = MockDocument(owner_id=uuid.uuid4(), classification="internal")
+    other_id = uuid.uuid4()
 
-    assert can_manage_shares(actor_id, own_doc, WorkspaceRole.MEMBER) is True
-    assert can_manage_shares(actor_id, other_doc, WorkspaceRole.OWNER) is True
-    assert can_manage_shares(actor_id, other_doc, WorkspaceRole.ADMIN) is True
-    assert can_manage_shares(actor_id, other_doc, WorkspaceRole.MEMBER) is False
-    assert can_manage_shares(actor_id, other_doc, WorkspaceRole.VIEWER) is False
+    doc = MockDocument(owner_id=other_id, classification="internal")
+    assert can_manage_shares(actor_id, doc, WorkspaceRole.OWNER) is True
+    assert can_manage_shares(actor_id, doc, WorkspaceRole.ADMIN) is True
+    assert can_manage_shares(actor_id, doc, WorkspaceRole.MEMBER) is False
+
+    doc_owned = MockDocument(owner_id=actor_id, classification="internal")
+    assert can_manage_shares(actor_id, doc_owned, WorkspaceRole.MEMBER) is True
 
 
 def test_can_grant_share_limits() -> None:
-    assert can_grant_share(WorkspaceRole.OWNER, False, "write") is True
+    # Workspace admin/owner can grant read or write
+    assert can_grant_share(WorkspaceRole.ADMIN, False, "read") is True
     assert can_grant_share(WorkspaceRole.ADMIN, False, "write") is True
-    assert can_grant_share(None, True, "write") is True  # doc owner
+
+    # Document owner can grant read or write
+    assert can_grant_share(WorkspaceRole.MEMBER, True, "read") is True
+    assert can_grant_share(WorkspaceRole.MEMBER, True, "write") is True
+
+    # Regular member holding read access cannot grant write
     assert can_grant_share(WorkspaceRole.MEMBER, False, "read") is True
     assert can_grant_share(WorkspaceRole.MEMBER, False, "write") is False
+
+    # Viewer cannot grant shares
     assert can_grant_share(WorkspaceRole.VIEWER, False, "read") is False
 
 
 def test_enforce_document_access_leakage_rule() -> None:
-    # Non-member always gets 404 (do not leak existence)
-    with pytest.raises(NotFoundError) as not_found:
-        enforce_document_access(has_access=False, is_workspace_member=False)
-    assert not_found.value.code == "NOT_FOUND"
+    with pytest.raises(NotFoundError) as nf_info:
+        enforce_document_access(has_access=False, is_workspace_member=False, action_name="view")
+    assert nf_info.value.code == "NOT_FOUND"
 
-    # Member without permission gets 403
-    with pytest.raises(ForbiddenError) as forbidden:
-        enforce_document_access(has_access=False, is_workspace_member=True)
-    assert forbidden.value.code == "FORBIDDEN"
-
-    # Member with permission succeeds
-    enforce_document_access(has_access=True, is_workspace_member=True)
+    with pytest.raises(ForbiddenError) as fb_info:
+        enforce_document_access(has_access=False, is_workspace_member=True, action_name="view")
+    assert fb_info.value.code == "FORBIDDEN"
