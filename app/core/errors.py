@@ -16,6 +16,7 @@ from typing import Any
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.logging import get_logger, get_request_id
@@ -195,10 +196,10 @@ async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 
 
 async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Handle Pydantic/FastAPI validation errors → 422 with field details."""
+    """Handle Pydantic/FastAPI validation errors -> 422 with field details."""
     details = [
         {
-            "field": " → ".join(str(loc) for loc in err.get("loc", [])),
+            "field": " -> ".join(str(loc) for loc in err.get("loc", [])),
             "issue": err.get("msg", "Invalid value"),
         }
         for err in exc.errors()
@@ -253,9 +254,21 @@ async def _http_exception_handler(request: Request, exc: StarletteHTTPException)
     )
 
 
+async def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    """Handle rate limit exceedances with RFC 7807 envelope and Retry-After header."""
+    logger.warning("rate_limit_exceeded", path=str(request.url.path), detail=str(exc.detail))
+    response = JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content=_build_error_body("RATE_LIMIT_EXCEEDED", f"Rate limit exceeded: {exc.detail}"),
+    )
+    response.headers["Retry-After"] = "60"
+    return response
+
+
 def register_exception_handlers(app: FastAPI) -> None:
     """Register all exception handlers on the FastAPI app."""
     app.add_exception_handler(AppError, _app_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(StarletteHTTPException, _http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, _validation_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, _unhandled_error_handler)

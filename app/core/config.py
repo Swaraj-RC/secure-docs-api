@@ -61,7 +61,8 @@ class Settings(BaseSettings):
     )
 
     # Rate limiting
-    RATE_LIMIT_AUTH: str = "5/minute"
+    RATE_LIMITING_ENABLED: bool = True
+    RATE_LIMIT_AUTH: str = "10/minute"
     RATE_LIMIT_UPLOAD: str = "10/minute"
 
     @property

@@ -214,6 +214,20 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 
 ---
 
+### 2026-11-01 — RFC 2606 reserved TLD rejection and cp1252 console unicode arrow crash
+- **Area:** Validation / Error Formatting (`app/core/errors.py`)
+- **Symptom:** Pydantic `EmailStr` rejected `user@corp.test` with `422 Unprocessable Entity` ("The part after the @-sign is a special-use or reserved name that cannot be used with email"). Attempting to log or display the error envelope in Windows PowerShell then crashed with `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 6`.
+- **Context:** Hardening authentication endpoints with SlowAPI rate limiters and testing registration rate limits.
+- **Investigation:** Pydantic's `email-validator` library enforces RFC 2606 rules that disallow reserved names like `.test` or `.example` in production-mode email parsing. Additionally, `_validation_error_handler` formatted error locations using a unicode arrow `" → "`, which fails on Windows terminals using legacy `cp1252` encoding.
+- **Root cause:** Use of reserved TLD in test fixture combined with non-ASCII delimiter in shared error formatting logic.
+- **Fix:** Switched test payloads to standard domains (`@corp-vault.com`) and replaced `" → "` with standard ASCII `" -> "` in `_validation_error_handler`.
+- **Verification:** All validation error payloads serialize cleanly and pass through terminal outputs without encoding crashes.
+- **Lesson:** Always use standard ASCII delimiters (`->`) in framework error envelopes to prevent stdout crashes on varied platform encodings.
+- **If asked in an interview:** "We diagnosed two coupled issues: Pydantic's `EmailStr` validates against RFC 2606 reserved names, rejecting `.test` domains, while Windows cp1252 shells threw charmap encoding exceptions when printing unicode arrows in validation error envelopes. We fixed both by using realistic domain names and replacing unicode arrows with standard ASCII arrows."
+- **Time cost:** ~5 min
+
+---
+
 ## Open Questions / Known Limitations
 
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`

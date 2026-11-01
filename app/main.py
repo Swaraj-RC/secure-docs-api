@@ -4,12 +4,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.api.v1.router import api_v1_router
 from app.core.config import get_settings
-from app.core.errors import register_exception_handlers
+from app.core.errors import _build_error_body, register_exception_handlers
 from app.core.logging import (
     generate_request_id,
     get_logger,
@@ -61,12 +62,31 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Request ID + security headers middleware
+    # Request ID + security headers + content-length guard middleware
     @app.middleware("http")
     async def request_middleware(request: Request, call_next: Any) -> Response:
-        # Generate and set request ID
         rid = request.headers.get("X-Request-ID") or generate_request_id()
         request_id_ctx.set(rid)
+
+        # Early payload size limit check via Content-Length header
+        content_length_raw = request.headers.get("content-length")
+        if content_length_raw:
+            try:
+                content_length = int(content_length_raw)
+                path = request.url.path
+                max_bytes = 100 * 1024 * 1024 if path.endswith("/versions") else 10 * 1024 * 1024
+                if content_length > max_bytes:
+                    err_resp = JSONResponse(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        content=_build_error_body(
+                            "PAYLOAD_TOO_LARGE",
+                            f"Request payload exceeds maximum allowed size ({max_bytes} bytes)",
+                        ),
+                    )
+                    err_resp.headers["X-Request-ID"] = rid
+                    return err_resp
+            except ValueError:
+                pass
 
         try:
             response: Response = await call_next(request)
@@ -83,6 +103,8 @@ def create_app() -> FastAPI:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-XSS-Protection"] = "0"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         if settings.is_production:
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
 

@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.ext.compiler import compiles
 
 from app.api.deps import get_db
+from app.core.rate_limit import limiter
 from app.db.base import Base
 from app.main import create_app
 
@@ -62,6 +63,7 @@ async def db_session(db_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, Non
 
 @pytest_asyncio.fixture(scope="function")
 async def async_client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    limiter.reset()
     app = create_app()
 
     async def _override_get_db() -> AsyncGenerator[AsyncSession, None]:

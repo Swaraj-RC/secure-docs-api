@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import get_settings
+from app.core.rate_limit import limiter
 from app.db.models.user import User
 from app.schemas.auth import (
     LoginRequest,
@@ -18,6 +20,7 @@ from app.services.auth_service import (
     rotate_refresh_token,
 )
 
+settings = get_settings()
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -27,7 +30,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
     status_code=status.HTTP_201_CREATED,
     summary="Register a new user account",
 )
+@limiter.limit(settings.RATE_LIMIT_AUTH)
 async def register(
+    request: Request,
     payload: RegisterRequest,
     db: AsyncSession = Depends(get_db),
 ) -> UserResponse:
@@ -40,6 +45,7 @@ async def register(
     response_model=TokenResponse,
     summary="Authenticate and obtain tokens",
 )
+@limiter.limit(settings.RATE_LIMIT_AUTH)
 async def login(
     payload: LoginRequest,
     request: Request,
@@ -61,6 +67,7 @@ async def login(
     response_model=TokenResponse,
     summary="Rotate refresh token for a new token pair",
 )
+@limiter.limit(settings.RATE_LIMIT_AUTH)
 async def refresh_token_endpoint(
     payload: RefreshTokenRequest,
     request: Request,
