@@ -83,6 +83,7 @@ async def refresh_token_endpoint(
 )
 async def logout(
     payload: RefreshTokenRequest,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> MessageResponse:
     await revoke_refresh_token(db=db, raw_token=payload.refresh_token)
