@@ -38,7 +38,7 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["document_id"], ["documents.id"], ondelete="CASCADE"),
@@ -47,21 +47,30 @@ def upgrade() -> None:
         sa.UniqueConstraint("storage_key"),
         sa.UniqueConstraint("document_id", "version_number", name="uq_document_versions_doc_ver"),
     )
-    op.create_index("ix_document_versions_document_id", "document_versions", ["document_id"], unique=False)
-
-    op.create_foreign_key(
-        "fk_current_version",
-        "documents",
+    op.create_index(
+        "ix_document_versions_document_id",
         "document_versions",
-        ["current_version_id"],
-        ["id"],
-        ondelete="SET NULL",
-        use_alter=True,
+        ["document_id"],
+        unique=False,
     )
+
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.create_foreign_key(
+            "fk_current_version",
+            "documents",
+            "document_versions",
+            ["current_version_id"],
+            ["id"],
+            ondelete="SET NULL",
+            use_alter=True,
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("fk_current_version", "documents", type_="foreignkey")
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        op.drop_constraint("fk_current_version", "documents", type_="foreignkey")
     op.drop_index("ix_document_versions_document_id", table_name="document_versions")
     op.drop_table("document_versions")
 

@@ -4,6 +4,8 @@ from app.api.deps import bearer_scheme, get_current_user
 from app.main import create_app
 
 PUBLIC_ROUTES = {
+    "/healthz",
+    "/readyz",
     "/api/v1/healthz",
     "/api/v1/readyz",
     "/api/v1/auth/register",

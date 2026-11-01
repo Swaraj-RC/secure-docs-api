@@ -19,8 +19,10 @@ depends_on: str | Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    # citext enables case-insensitive email uniqueness without lower() functional index
-    op.execute("CREATE EXTENSION IF NOT EXISTS citext")
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        # citext enables case-insensitive email uniqueness without lower() functional index
+        op.execute("CREATE EXTENSION IF NOT EXISTS citext")
 
     op.create_table(
         "users",
@@ -40,13 +42,13 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
         sa.Column(
             "updated_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("id"),

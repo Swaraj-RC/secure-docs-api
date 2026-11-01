@@ -1,3 +1,5 @@
+Note: system clock was 2026-11-01 throughout this build; per-entry dates reflect when the entry was written, not spaced calendar days.
+
 # BUILD_LOG — Engineering Journal
 
 Chronological record of problems encountered while building the Secure Document &

@@ -48,7 +48,7 @@ def upgrade() -> None:
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
-            server_default=sa.text("now()"),
+            server_default=sa.text("CURRENT_TIMESTAMP"),
             nullable=False,
         ),
         sa.ForeignKeyConstraint(["document_id"], ["documents.id"], ondelete="CASCADE"),
@@ -57,7 +57,12 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("document_id", "user_id", name="uq_document_shares_doc_user"),
     )
-    op.create_index("ix_document_shares_document_id", "document_shares", ["document_id"], unique=False)
+    op.create_index(
+        "ix_document_shares_document_id",
+        "document_shares",
+        ["document_id"],
+        unique=False,
+    )
     op.create_index("ix_document_shares_user_id", "document_shares", ["user_id"], unique=False)
 
 

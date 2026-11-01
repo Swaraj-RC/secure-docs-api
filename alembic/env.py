@@ -1,6 +1,7 @@
 """Alembic environment configuration for async migrations."""
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
 from app.db.base import Base
-from app.db.models import *  # noqa: F401, F403 — import all models for autogenerate
+from app.db.models import *  # noqa: F403
 
 config = context.config
 settings = get_settings()
@@ -20,6 +21,16 @@ if raw_url and "driver://user:pass" not in raw_url and raw_url.strip():
     target_url = raw_url
 else:
     target_url = os.environ.get("DATABASE_URL") or settings.DATABASE_URL
+
+is_local_pg = "localhost:5432" in target_url or "127.0.0.1:5432" in target_url
+if not settings.is_production and is_local_pg:
+    import socket
+    try:
+        with socket.create_connection(("127.0.0.1", 5432), timeout=0.2):
+            pass
+    except (OSError, TimeoutError):
+        target_url = "sqlite+aiosqlite:///./securedocs.db"
+
 config.set_main_option("sqlalchemy.url", target_url)
 
 if config.config_file_name is not None:

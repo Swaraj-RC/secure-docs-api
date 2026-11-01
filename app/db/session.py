@@ -1,6 +1,8 @@
 """Async database engine and session management."""
 
+import socket
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -9,15 +11,44 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 
+logger = get_logger()
 settings = get_settings()
 
+
+def _get_effective_db_url() -> str:
+    url = settings.DATABASE_URL
+    if not settings.is_production and ("localhost:5432" in url or "127.0.0.1:5432" in url):
+        try:
+            with socket.create_connection(("127.0.0.1", 5432), timeout=0.2):
+                return url
+        except (OSError, TimeoutError):
+            logger.warning(
+                "PostgreSQL at localhost:5432 is unreachable; "
+                "falling back to SQLite for local development."
+            )
+            return "sqlite+aiosqlite:///./securedocs.db"
+    return url
+
+
+db_url = _get_effective_db_url()
+
+engine_kwargs: dict[str, Any] = {
+    "echo": settings.DATABASE_ECHO,
+}
+if not db_url.startswith("sqlite"):
+    engine_kwargs.update(
+        {
+            "pool_pre_ping": True,
+            "pool_size": 10,
+            "max_overflow": 20,
+        }
+    )
+
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DATABASE_ECHO,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    db_url,
+    **engine_kwargs,
 )
 
 async_session_factory = async_sessionmaker(

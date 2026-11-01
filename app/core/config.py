@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Any
 
-from pydantic import field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,7 +17,10 @@ class Settings(BaseSettings):
 
     # Application
     APP_NAME: str = "secure-docs-api"
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = Field(
+        default="development",
+        validation_alias=AliasChoices("ENVIRONMENT", "SECURE_DOCS_ENV"),
+    )
     DEBUG: bool = True
     API_V1_PREFIX: str = "/api/v1"
     BACKEND_CORS_ORIGINS: list[str] = ["http://localhost:3000", "http://localhost:8000"]
@@ -28,11 +31,17 @@ class Settings(BaseSettings):
     WORKERS: int = 1
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://securedocs:securedocs_dev@localhost:5432/securedocs"
+    DATABASE_URL: str = Field(
+        default="postgresql+asyncpg://securedocs:securedocs_dev@localhost:5432/securedocs",
+        validation_alias=AliasChoices("DATABASE_URL", "SECURE_DOCS_DB_URL"),
+    )
     DATABASE_ECHO: bool = False
 
     # Auth / JWT
-    SECRET_KEY: str = "CHANGE-ME-to-a-random-64-char-hex-string"
+    SECRET_KEY: str = Field(
+        default="CHANGE-ME-to-a-random-64-char-hex-string",
+        validation_alias=AliasChoices("SECRET_KEY", "SECURE_DOCS_JWT_SECRET"),
+    )
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -43,8 +52,14 @@ class Settings(BaseSettings):
     LOCKOUT_DURATION_MINUTES: int = 15
 
     # Storage
-    STORAGE_BACKEND: str = "local"
-    LOCAL_STORAGE_PATH: str = "./uploads"
+    STORAGE_BACKEND: str = Field(
+        default="local",
+        validation_alias=AliasChoices("STORAGE_BACKEND", "SECURE_DOCS_STORAGE_BACKEND"),
+    )
+    LOCAL_STORAGE_PATH: str = Field(
+        default="./uploads",
+        validation_alias=AliasChoices("LOCAL_STORAGE_PATH", "SECURE_DOCS_STORAGE_PATH"),
+    )
     S3_BUCKET_NAME: str = ""
     S3_REGION: str = ""
     S3_ACCESS_KEY_ID: str = ""

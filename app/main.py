@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.router import api_v1_router
 from app.core.config import get_settings
 from app.core.errors import _build_error_body, register_exception_handlers
@@ -114,6 +115,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     # --- Routers ---
+    app.include_router(health_router)
     app.include_router(api_v1_router, prefix=settings.API_V1_PREFIX)
 
     return app

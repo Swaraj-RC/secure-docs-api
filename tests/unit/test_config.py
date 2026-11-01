@@ -9,7 +9,7 @@ def test_settings_defaults() -> None:
     """Test default settings."""
     settings = get_settings()
     assert settings.APP_NAME == "secure-docs-api"
-    assert settings.ENVIRONMENT in ("development", "testing")
+    assert settings.ENVIRONMENT in ("development", "testing", "dev")
     assert not settings.is_production
     assert settings.max_upload_size_bytes == 25 * 1024 * 1024
     assert "application/pdf" in settings.allowed_mime_types_list

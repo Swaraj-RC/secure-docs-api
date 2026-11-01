@@ -7,21 +7,27 @@ Usage:
 import asyncio
 import hashlib
 import logging
+import sys
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
 from app.core.security import hash_password
+from app.db.base import Base
 from app.db.models.audit import AuditLog
 from app.db.models.document import DocClassification, DocStatus, Document
 from app.db.models.share import DocumentShare, SharePermission
 from app.db.models.user import User
 from app.db.models.version import DocumentVersion
 from app.db.models.workspace import Workspace, WorkspaceMember, WorkspaceRole
+from app.db.session import _get_effective_db_url
 from app.storage import get_storage
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -32,9 +38,13 @@ SAMPLE_PDF_CONTENT = b"%PDF-1.4\n1 0 obj\n<< /Title (Seeded Document) >>\nendobj
 
 
 async def seed_data() -> None:
-    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    db_url = _get_effective_db_url()
+    engine = create_async_engine(db_url, echo=False)
     session_maker = async_sessionmaker(engine, expire_on_commit=False)
     storage = get_storage()
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
     async with session_maker() as db:
         logger.info("Connecting to database...")

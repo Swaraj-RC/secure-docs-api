@@ -2,10 +2,33 @@
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import DateTime, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import CITEXT, INET, JSONB, UUID
+from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+# SQLite shims for PostgreSQL-specific types during tests and local SQLite usage
+@compiles(CITEXT, "sqlite")
+def _compile_citext_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return "TEXT COLLATE NOCASE"
+
+
+@compiles(UUID, "sqlite")
+def _compile_uuid_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return "CHAR(36)"
+
+
+@compiles(JSONB, "sqlite")
+def _compile_jsonb_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return "TEXT"
+
+
+@compiles(INET, "sqlite")
+def _compile_inet_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
+    return "VARCHAR(45)"
 
 
 class Base(DeclarativeBase):

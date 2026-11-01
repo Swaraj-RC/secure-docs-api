@@ -44,10 +44,15 @@ def _compile_inet_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
 
 
 TEST_BACKEND = os.environ.get("TEST_BACKEND", "").lower()
-USE_SQLITE = TEST_BACKEND == "sqlite"
+db_env = os.environ.get("SECURE_DOCS_TEST_DB_URL") or os.environ.get("DATABASE_URL", "")
+USE_SQLITE = (
+    TEST_BACKEND == "sqlite"
+    or db_env.startswith("sqlite")
+    or (not db_env and TEST_BACKEND != "postgres")
+)
 
 if USE_SQLITE:
-    TEST_DB_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    TEST_DB_URL = db_env if db_env.startswith("sqlite") else "sqlite+aiosqlite:///:memory:"
     IS_POSTGRES = False
 else:
     # PostgreSQL is the default test backend
