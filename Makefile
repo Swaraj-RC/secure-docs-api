@@ -1,4 +1,4 @@
-.PHONY: help install lint typecheck test test-unit test-integration format up down build migrate seed clean
+.PHONY: help install lint typecheck test test-unit test-integration test-pg migrate-check format up down build migrate seed clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -7,10 +7,11 @@ install: ## Install all dependencies
 	pip install -e ".[dev]"
 
 lint: ## Run ruff linter
-	ruff check app tests
+	ruff check app tests scripts
+	ruff format --check app tests scripts
 
 typecheck: ## Run mypy type checker
-	mypy app
+	mypy app tests scripts
 
 test: ## Run all tests
 	pytest
@@ -20,6 +21,13 @@ test-unit: ## Run unit tests only
 
 test-integration: ## Run integration tests only
 	pytest -m integration
+
+test-pg: ## Run test suite against PostgreSQL 16 (docker-compose.test.yml)
+	docker compose -f docker-compose.test.yml up -d
+	DATABASE_URL="postgresql+asyncpg://test:test@localhost:5433/test" TEST_BACKEND=postgres pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+
+migrate-check: ## Verify migrations apply cleanly, revert to base, and re-apply
+	DATABASE_URL="postgresql+asyncpg://test:test@localhost:5433/test" pytest tests/integration/test_migrations.py -k test_alembic_upgrade_downgrade_cycle
 
 format: ## Format code with ruff
 	ruff format app tests

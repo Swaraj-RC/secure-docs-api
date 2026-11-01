@@ -7,7 +7,7 @@ packages = ["app"]
 
 [project]
 name = "secure-docs-api"
-version = "0.1.0"
+version = "1.0.0"
 description = "Secure Document & Records Management API"
 readme = "README.md"
 license = {text = "MIT"}
@@ -95,6 +95,10 @@ module = [
     "slowapi.*",
     "jose.*",
     "magic",
+    "factory.*",
+    "asyncpg.*",
+    "aiosqlite.*",
+    "pytest_asyncio.*",
 ]
 ignore_missing_imports = true
 
