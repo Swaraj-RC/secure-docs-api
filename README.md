@@ -1,5 +1,9 @@
 # Secure Document & Records Management API
 
+[![CI](https://github.com/Swaraj-RC/secure-docs-api/actions/workflows/ci.yml/badge.svg)](https://github.com/Swaraj-RC/secure-docs-api/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](pyproject.toml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A production-grade, multi-tenant document and records management API built with FastAPI, SQLAlchemy 2.0 (async), PostgreSQL 16, and modern security practices.
 
 ## Problem Statement
@@ -73,20 +77,38 @@ See [`.env.example`](.env.example) for all configuration options. Key variables:
 | `STORAGE_BACKEND` | `local` or `s3` | `local` |
 | `MAX_UPLOAD_SIZE_MB` | Maximum file upload size in megabytes | `25` |
 
-## Testing
+## Testing & Verification
+
+The test suite supports two execution backends:
+
+1. **PostgreSQL 16 (Canonical Backend & Source of Truth):**
+   Tests execute against a live PostgreSQL 16 database. Schemas are bootstrapped directly via **Alembic migrations** (`alembic upgrade head`), validating real PostgreSQL extension types (`CITEXT`, `INET`, `JSONB`), GIN trigram indexes (`pg_trgm`), custom ENUMs, and deferred circular foreign keys. Between tests, state is reset via `TRUNCATE TABLE ... RESTART IDENTITY CASCADE`. This environment is enforced in GitHub Actions CI.
+
+2. **SQLite In-Memory (Fast Local Unit Backend):**
+   For rapid offline iteration without running PostgreSQL, opt in with `TEST_BACKEND=sqlite`. Dialect shims compile `CITEXT` to `TEXT COLLATE NOCASE`, `UUID` to `CHAR(36)`, and `JSONB` to `TEXT`.
+
+### Running Tests
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+# 1. Canonical run against PostgreSQL 16 (docker-compose.test.yml on port 5433)
+make test-pg
+# or manually:
+docker compose -f docker-compose.test.yml up -d
+DATABASE_URL="postgresql+asyncpg://test:test@localhost:5433/test" TEST_BACKEND=postgres pytest --cov=app --cov-report=term-missing --cov-fail-under=85
 
-# Run full test suite with coverage
-pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+# 2. Verify migration cycle (upgrade head -> downgrade base -> upgrade head)
+make migrate-check
 
-# Lint and type check
-ruff check app tests
-ruff format --check app tests
-mypy app tests
+# 3. Fast local unit tests via SQLite fallback
+TEST_BACKEND=sqlite pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+
+# 4. Lint and type check
+ruff check app tests scripts
+ruff format --check app tests scripts
+mypy app tests scripts
 ```
+
+See [`docs/verification.md`](docs/verification.md) for full commands and terminal execution transcripts.
 
 ## Security
 

@@ -1,8 +1,9 @@
 # BUILD_LOG — Engineering Journal
 
 Chronological record of problems encountered while building the Secure Document &
-Records Management API, and how they were resolved. Each entry is specific enough
-to reproduce the problem and the fix without seeing the commit.
+Records Management API, and how they were resolved. Development was compressed into
+an intensive sprint on 2026-11-01; entries from today onward reflect the corrective
+hardening pass, real PostgreSQL test failures, and migration drift resolution.
 
 **How to read:** Entries are grouped by date. Each entry documents a distinct problem
 with symptom, investigation, root cause, fix, and verification. The "If asked in an
@@ -260,6 +261,62 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 1. **Distributed Rate Limiting:** Swap SlowAPI's in-memory storage for Redis to support horizontally autoscaled API replicas.
 2. **Transactional Outbox for Audit Logs:** Write audit records to a transactional outbox table or message queue (Kafka / RabbitMQ) to decouple audit I/O latency from core document transactions.
 3. **Direct-to-S3 Presigned Uploads:** For files larger than 100MB, generate presigned S3 upload URLs with client-side checksums to offload upload bandwidth entirely from the API servers.
+
+---
+
+### 2026-11-01 — CI Failure: Mypy missing stubs for factory-boy in strict mode
+- **Area:** CI / Type Checking
+- **Symptom:** GitHub Actions `lint-and-type-check` failed on `mypy app tests scripts` with `Skipping analyzing "factory": module is installed, but missing library stubs or py.typed marker`.
+- **Context:** Running mypy in strict mode on Ubuntu GitHub runner after clean installation of dev dependencies.
+- **Investigation:** On Linux CI, `pip install -e ".[dev]"` installs `factory-boy>=3.3.0`. In `pyproject.toml`, `[[tool.mypy.overrides]]` only ignored `testcontainers.*`, `slowapi.*`, `jose.*`, and `magic`. `factory.*` was unlisted.
+- **Root cause:** Untyped third-party dependency missing from mypy module overrides table under `strict = true`.
+- **Fix:** Added `factory.*`, `asyncpg.*`, `aiosqlite.*`, `pytest_asyncio.*` to `tool.mypy.overrides` with `ignore_missing_imports = true`, and added `sudo apt-get install -y libmagic1` to ensure shared C libraries load.
+- **Verification:** Mypy passes across all 83 source files with zero errors.
+- **Lesson:** Always declare `ignore_missing_imports` for third-party libraries that lack PEP 561 `py.typed` markers when using mypy in strict mode.
+- **If asked in an interview:** "Mypy running with `strict = true` in CI caught that `factory-boy` lacks type stubs and wasn't in our override table. Adding `factory.*` to `tool.mypy.overrides` in `pyproject.toml` aligned the CI typechecker with real dependencies."
+- **Time cost:** ~5 min
+
+---
+
+### 2026-11-01 — PostgreSQL CI Test Crash: Base.metadata.create_all bypasses extensions and circular FKs
+- **Area:** Database / CI Testing
+- **Symptom:** GitHub Actions `test` job failed against PostgreSQL 16 container (`postgres:16-alpine`).
+- **Context:** Executing integration test suite against live PostgreSQL in CI.
+- **Investigation:** `tests/conftest.py` bootstrapped database with `Base.metadata.create_all` instead of Alembic migrations. PostgreSQL aborted because extension `citext` was not created prior to creating the `users` table, extension `pg_trgm` was not created for the GIN trigram index on `documents`, and circular foreign keys between `documents` and `document_versions` lacked Alembic's deferred FK creation.
+- **Root cause:** Relying on SQLAlchemy `create_all` in tests rather than the actual migration pipeline.
+- **Fix:** Updated `tests/conftest.py` so PostgreSQL runs `alembic upgrade head` to establish the canonical schema and uses `TRUNCATE TABLE ... RESTART IDENTITY CASCADE` between tests, while preserving `TEST_BACKEND=sqlite` as an explicit local fallback. Added `migrations` job to CI to test `upgrade head -> downgrade base -> upgrade head`.
+- **Verification:** Alembic establishes schema with all extensions and enums; tests execute against clean migrations.
+- **Lesson:** Never bootstrap integration tests with `create_all` when your schema depends on database extensions, custom enums, or deferred circular foreign keys. Always run Alembic migrations.
+- **If asked in an interview:** "`Base.metadata.create_all` creates tables in ORM dependency order without running custom migration SQL like `CREATE EXTENSION citext` or deferred alter-table foreign keys. Running `alembic upgrade head` in test bootstrap ensures the test suite runs against the exact same DDL applied in production."
+- **Time cost:** ~15 min
+
+---
+
+### 2026-11-01 — CITEXT case-insensitivity divergence masked by SQLite TEXT shim
+- **Area:** Testing / Dialect Differences
+- **Symptom:** SQLite test runner treated unique email constraints as case-sensitive, whereas PostgreSQL `CITEXT` enforces case-insensitivity.
+- **Context:** Reviewing dialect shims in `tests/conftest.py`.
+- **Investigation:** `_compile_citext_sqlite` compiled `CITEXT` to `"TEXT"`. SQLite `TEXT` columns with unique constraints allow `"User@Corp.com"` and `"user@corp.com"`. In production PostgreSQL, `CITEXT` correctly rejects both as duplicates.
+- **Root cause:** Naive dialect compiler shim in `conftest.py` missing SQLite collation rule.
+- **Fix:** Changed `_compile_citext_sqlite` to return `"TEXT COLLATE NOCASE"`, aligning SQLite's uniqueness semantics with PostgreSQL's `CITEXT`. Added `test_user_email_case_insensitive_unique_constraint`.
+- **Verification:** `test_user_email_case_insensitive_unique_constraint` passes on both backends.
+- **Lesson:** When shimming dialect types for test speed, ensure the shim accurately reproduces the semantic guarantees of the target production engine.
+- **If asked in an interview:** "PostgreSQL's `CITEXT` type is case-insensitive by default. When shimming `CITEXT` to `TEXT` for local SQLite testing, you must compile it as `TEXT COLLATE NOCASE`, otherwise the test runner permits duplicate emails differing only by casing that would fail with an `IntegrityError` in production Postgres."
+- **Time cost:** ~10 min
+
+---
+
+### 2026-11-01 — Alembic env.py overwrote custom target database URL
+- **Area:** Database Migrations (`alembic/env.py`)
+- **Symptom:** Programmatic calls to `command.upgrade(cfg, "head")` with custom database URLs ignored `cfg.set_main_option("sqlalchemy.url", ...)` and attempted to connect to localhost:5432 default settings.
+- **Context:** Integrating Alembic migrations into test fixtures.
+- **Investigation:** Line 18 of `alembic/env.py` unconditionally executed `config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)`. Any URL configured on the `Config` object was overwritten.
+- **Root cause:** Unconditional settings override in Alembic configuration script.
+- **Fix:** Changed `alembic/env.py` to preserve `config.get_main_option("sqlalchemy.url")` if already populated, falling back to `settings.DATABASE_URL` only when unset. Also wrapped `run_async_migrations` in a threadpool executor if called within an existing running event loop.
+- **Verification:** Test suite and programmatic runners can target isolated test databases without modifying global settings.
+- **Lesson:** Ensure migration harnesses preserve dynamic CLI and programmatic configuration parameters rather than clobbering them with static application settings.
+- **If asked in an interview:** "`alembic/env.py` was hard-coding `settings.DATABASE_URL` over whatever URL was passed to the Alembic `Config` instance. Checking `get_main_option('sqlalchemy.url')` first allows test harnesses and CLI overrides (`-x db=...`) to route migrations to ephemeral test databases."
+- **Time cost:** ~10 min
 
 ---
 
