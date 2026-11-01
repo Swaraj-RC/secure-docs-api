@@ -7,15 +7,25 @@ from app.db.models.workspace import WorkspaceRole
 
 
 class DocumentAccessProtocol(Protocol):
-    owner_id: uuid.UUID
-    classification: str
-    status: str
+    @property
+    def owner_id(self) -> uuid.UUID: ...
+
+    @property
+    def classification(self) -> str: ...
+
+    @property
+    def status(self) -> str: ...
 
 
 class ShareAccessProtocol(Protocol):
-    user_id: uuid.UUID
-    permission: str
-    expires_at: datetime | None
+    @property
+    def user_id(self) -> uuid.UUID: ...
+
+    @property
+    def permission(self) -> str: ...
+
+    @property
+    def expires_at(self) -> datetime | None: ...
 
 
 def can_view_workspace(role: WorkspaceRole | None) -> bool:

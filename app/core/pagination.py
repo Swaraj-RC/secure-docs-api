@@ -1,7 +1,7 @@
 """Shared pagination utilities: PageParams dependency and Page[T] response model."""
 
 from fastapi import Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class PageParams:
@@ -23,6 +23,8 @@ class PageParams:
 
 class Page[T](BaseModel):
     """Paginated response envelope."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     items: list[T]
     page: int

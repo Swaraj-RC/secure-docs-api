@@ -19,6 +19,8 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 | 2026-11-01 | SlowAPI for rate limiting | Custom middleware, redis-based | Lightweight, integrates with FastAPI natively. In-memory is fine for single-instance dev; documented Redis as production upgrade path. |
 | 2026-11-01 | python-magic-bin on Windows, python-magic on Linux | pure-python alternatives | python-magic wraps libmagic (best MIME detection). Windows lacks libmagic natively; python-magic-bin bundles it. Conditional dependency in pyproject.toml. |
 | 2026-11-01 | Multi-stage Docker build, non-root user | Single-stage | Smaller image (~200MB vs ~800MB), follows security best practices. Builder stage discarded after pip install. |
+| 2026-11-01 | Deny-by-default centralized authorization policy | Distributed endpoint checks | Centralizes all RBAC and ACL logic in one pure-function module with zero ORM coupling, preventing data leakage. |
+| 2026-11-01 | GIN pg_trgm index + ILIKE for document search | tsvector / tsquery, plain B-Tree | Fast substring matching for partial codes/vendor names without linguistic tokenization distortion; preserved SQLite test compatibility. |
 
 ---
 
@@ -108,34 +110,52 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - **If asked in an interview:** "SQLite drops timezone offsets on serialization, returning naive datetimes. Comparing `now(UTC)` with a naive datetime throws a `TypeError`. We normalized all timestamps with a helper that coerces naive values to UTC before any comparison."
 - **Time cost:** ~10 min
 
----
-
-
-### 2026-11-01 ? Coverage drops under async SQLAlchemy greenlet execution
-- **Area:** Testing / Test Coverage (pyproject.toml)
-- **Symptom:** Total coverage dropped to 79.17% (failing 85% gate) with large blocks of auth_service.py and workspace_service.py reported missing despite integration tests hitting every endpoint.
-- **Context:** Executing Day 4 workspace and membership integration tests using AsyncClient and async database sessions.
+### 2026-11-01 — Coverage drops under async SQLAlchemy greenlet execution
+- **Area:** Testing / Test Coverage (`pyproject.toml`)
+- **Symptom:** Total coverage dropped to 79.17% (failing 85% gate) with large blocks of `auth_service.py` and `workspace_service.py` reported missing despite integration tests hitting every endpoint.
+- **Context:** Executing Day 4 workspace and membership integration tests using `AsyncClient` and async database sessions.
 - **Investigation:** Verified tests were genuinely passing and hitting the endpoints. Traced execution: SQLAlchemy asyncio delegates dialect execution into greenlet worker threads. By default, coverage.py only traces the main thread.
 - **Root cause:** Without explicit concurrency configuration, coverage.py silently ignores code running inside greenlet threads spawned by SQLAlchemy async engine.
-- **Fix:** Added [tool.coverage.run] with concurrency = ["thread", "greenlet"] and branch = true in pyproject.toml.
-- **Verification:** Re-running pytest showed measured coverage jump from 79.17% to 91.68% across all 34 passing tests.
-- **Lesson:** Always configure concurrency = ["thread", "greenlet"] in coverage settings for any project using SQLAlchemy 2.0 asyncio.
+- **Fix:** Added `[tool.coverage.run]` with `concurrency = ["thread", "greenlet"]` and `branch = true` in `pyproject.toml`.
+- **Verification:** Re-running pytest showed measured coverage jump from 79.17% to 91.68% across all passing tests.
+- **Lesson:** Always configure `concurrency = ["thread", "greenlet"]` in coverage settings for any project using SQLAlchemy 2.0 asyncio.
 - **If asked in an interview:** "SQLAlchemy's async engine coordinates with greenlet threads under the hood. Without concurrency = ['thread', 'greenlet'] declared in pyproject.toml, coverage.py ignores code executed inside those greenlets, causing false coverage drops."
 - **Time cost:** ~10 min
 
----
-
-
-### 2026-11-01 ? Route reflection meta-test identifies unprotected logout endpoint
-- **Area:** Authorization / Route Security (tests/unit/test_meta_security.py)
-- **Symptom:** Meta-test failed: AssertionError: SECURITY VIOLATION: Route '/api/v1/auth/logout' [POST] is not in the public allowlist and has no authentication dependency attached!
+### 2026-11-01 — Route reflection meta-test identifies unprotected logout endpoint
+- **Area:** Authorization / Route Security (`tests/unit/test_meta_security.py`)
+- **Symptom:** Meta-test failed: `AssertionError: SECURITY VIOLATION: Route '/api/v1/auth/logout' [POST] is not in the public allowlist and has no authentication dependency attached!`.
 - **Context:** Executing Day 5 security meta-test that inspects all registered FastAPI route dependencies.
-- **Investigation:** Examined app/api/v1/endpoints/auth.py. Although the logout endpoint revoked refresh tokens passed in the request body, it lacked an HTTP Bearer dependency.
-- **Root cause:** The handler signature omitted current_user = Depends(get_current_user).
-- **Fix:** Added current_user: User = Depends(get_current_user) to the logout endpoint and updated integration test fixtures to provide valid Bearer tokens.
+- **Investigation:** Examined `app/api/v1/endpoints/auth.py`. Although the logout endpoint revoked refresh tokens passed in the request body, it lacked an HTTP Bearer dependency.
+- **Root cause:** The handler signature omitted `current_user = Depends(get_current_user)`.
+- **Fix:** Added `current_user: User = Depends(get_current_user)` to the logout endpoint and updated integration test fixtures to provide valid Bearer tokens.
 - **Verification:** Meta-test confirmed 100% of non-public routes require authentication.
 - **Lesson:** Writing an automated meta-test that inspects application routes at test time reliably catches unprotected endpoints before code reaches production.
-- **If asked in an interview:** "We wrote a meta-test that reflects over pp.routes and validates that every non-public endpoint declares an explicit authentication dependency. It immediately caught that our logout route lacked a Bearer token dependency, guarding against accidental route exposure."
+- **If asked in an interview:** "We wrote a meta-test that reflects over `app.routes` and validates that every non-public endpoint declares an explicit authentication dependency. It immediately caught that our logout route lacked a Bearer token dependency, guarding against accidental route exposure."
+- **Time cost:** ~5 min
+
+### 2026-11-01 — PydanticSchemaGenerationError on generic Page[Document] with SQLAlchemy models
+- **Area:** Schemas / Pagination (`app/core/pagination.py`)
+- **Symptom:** `pydantic.errors.PydanticSchemaGenerationError: Unable to generate pydantic-core schema for <class 'app.db.models.document.Document'>`.
+- **Context:** Type annotating service function return types with `Page[Document]`.
+- **Investigation:** Traced Pydantic model evaluation in `app/services/document_service.py`. When `Page[Document]` is evaluated at import time, Pydantic attempts to build a schema for arbitrary SQLAlchemy models in `items: list[T]`.
+- **Root cause:** `BaseModel` defaults to `arbitrary_types_allowed=False`, raising an exception when generic arguments are non-Pydantic ORM classes.
+- **Fix:** Configured `model_config = ConfigDict(arbitrary_types_allowed=True)` on `Page[T]` in `app/core/pagination.py`.
+- **Verification:** Service functions return `Page[Document]` cleanly and serializing to `Page[DocumentResponse]` succeeds.
+- **Lesson:** Generic envelope containers used across both service layers and API boundaries should enable `arbitrary_types_allowed` to accommodate ORM entities.
+- **If asked in an interview:** "Generic Pydantic models like `Page[T]` fail schema generation if parametrized with ORM model classes. Adding `arbitrary_types_allowed=True` to the generic model config permits typing service returns with database models before response mapping."
+- **Time cost:** ~5 min
+
+### 2026-11-01 — Protocol attribute invariance on StrEnum types in mypy
+- **Area:** Type Safety / Protocols (`app/policies/access.py`)
+- **Symptom:** `mypy app tests` failed with `Argument "doc" to "can_view_document" has incompatible type "Document"; expected "DocumentAccessProtocol" [arg-type]`. Following members have conflicts: `classification: expected "str", got "DocClassification"`.
+- **Context:** Passing SQLAlchemy model instances with `StrEnum` attributes into pure policy functions accepting `DocumentAccessProtocol`.
+- **Investigation:** `DocumentAccessProtocol` defined mutable instance attributes: `classification: str`, `status: str`. In Python typing, mutable protocol attributes are invariant: only exact `str` is accepted, not subtypes like `DocClassification(StrEnum)`.
+- **Root cause:** Defining protocol attributes as simple variables rather than `@property` getters enforces strict type invariance.
+- **Fix:** Changed protocol attributes to read-only property getters (`@property def classification(self) -> str: ...`).
+- **Verification:** mypy passed with zero errors across all 60 source files.
+- **Lesson:** In typing protocols, always define read-only attributes using `@property` to allow subtype covariance.
+- **If asked in an interview:** "Plain attribute annotations on a `Protocol` are invariant in Python typing, so a subclass like `StrEnum` won't satisfy a `str` attribute. Defining `@property` on the protocol makes the attribute covariant and read-only, matching enum subclasses smoothly."
 - **Time cost:** ~5 min
 
 ---
