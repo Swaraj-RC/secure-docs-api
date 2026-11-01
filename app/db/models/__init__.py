@@ -1,4 +1,5 @@
 from app.db.models.document import DocClassification, DocStatus, Document
+from app.db.models.share import DocumentShare, SharePermission
 from app.db.models.token import RefreshToken
 from app.db.models.user import User
 from app.db.models.version import DocumentVersion
@@ -8,8 +9,10 @@ __all__ = [
     "DocClassification",
     "DocStatus",
     "Document",
+    "DocumentShare",
     "DocumentVersion",
     "RefreshToken",
+    "SharePermission",
     "User",
     "Workspace",
     "WorkspaceMember",
