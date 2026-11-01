@@ -1,10 +1,10 @@
 # Secure Document & Records Management API
 
-A production-grade, multi-tenant document management API built with FastAPI, PostgreSQL, and modern security practices.
+A production-grade, multi-tenant document and records management API built with FastAPI, SQLAlchemy 2.0 (async), PostgreSQL 16, and modern security practices.
 
 ## Problem Statement
 
-Organizations need a secure, auditable system to manage documents across teams with fine-grained access control, version tracking, and compliance-ready audit trails. This API provides exactly that — without the bloat of AI/ML features or real-time collaboration, focusing instead on correctness, security, and operational reliability.
+Organizations need a secure, auditable system to manage sensitive documents across departments and external parties with fine-grained access control, version tracking, and compliance-ready audit trails. This API provides exactly that — without the bloat of AI/ML features or real-time collaboration, focusing instead on correctness, security, and operational reliability.
 
 ## Architecture
 
@@ -34,14 +34,14 @@ Organizations need a secure, auditable system to manage documents across teams w
 
 ## Features
 
-- **Multi-tenant workspaces** with role-based access control (owner, admin, member, viewer)
-- **Document management** with versioning, soft delete, and classification levels
-- **Secure file handling** — magic-byte validation, checksum verification, opaque storage keys
-- **Fine-grained sharing** — per-document ACLs with expiry, never exceeding granter's permissions
-- **JWT authentication** with rotating refresh tokens and replay detection
-- **Append-only audit trail** — every mutation and download logged with actor, resource, and metadata
-- **Security-first design** — Argon2id passwords, rate limiting, account lockout, security headers
-- **RFC 7807 error responses** with stable error codes and request tracing
+- **Multi-tenant workspaces** with role-based access control (owner, admin, member, viewer).
+- **Document management** with versioning, soft delete, trigram search, and classification levels (`public`, `internal`, `confidential`, `restricted`).
+- **Secure file handling** — magic-byte MIME detection, SHA-256 integrity check, size caps, and opaque UUID storage keys.
+- **Controlled cross-tenant sharing** — per-document ACLs with query-time temporal expiry, never exceeding granter's held permissions.
+- **JWT authentication** with rotating opaque refresh tokens (SHA-256 in DB) and replay attack detection with family revocation.
+- **Append-only audit trail** — every document creation, modification, download, and permission change logged immutably.
+- **Security-first design** — Argon2id password hashing, consecutive failure account lockout, SlowAPI rate limiting, and HTTP security headers.
+- **RFC 7807 error envelopes** with stable machine-readable codes and request ID tracing.
 
 ## Quickstart
 
@@ -54,11 +54,11 @@ cd secure-docs-api
 cp .env.example .env
 docker compose up -d
 
-# Wait for startup, then open Swagger UI
+# Open Swagger UI
 # http://localhost:8000/docs
 
-# (Optional) Seed demo data
-docker compose exec api python scripts/seed.py
+# Seed demo data
+docker compose exec api python -m scripts.seed
 ```
 
 ## Environment Variables
@@ -68,25 +68,10 @@ See [`.env.example`](.env.example) for all configuration options. Key variables:
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://...` |
-| `SECRET_KEY` | JWT signing key (change in prod!) | — |
+| `SECRET_KEY` | JWT signing secret key (must be changed in prod) | — |
 | `ENVIRONMENT` | `development` / `production` | `development` |
 | `STORAGE_BACKEND` | `local` or `s3` | `local` |
-| `MAX_UPLOAD_SIZE_MB` | Maximum file upload size | `25` |
-
-## API Summary
-
-All endpoints under `/api/v1`. See [`docs/api.md`](docs/api.md) for full details.
-
-| Group | Endpoints | Auth |
-|-------|-----------|------|
-| Health | `GET /healthz`, `GET /readyz` | No |
-| Auth | `POST /auth/register,login,refresh,logout`, `GET /auth/me` | Varies |
-| Users | `GET/PATCH /users/me`, `POST /users/me/password` | Yes |
-| Workspaces | CRUD + member management | Yes |
-| Documents | CRUD + filter/sort/paginate | Yes |
-| Versions | Upload, list, download, delete | Yes |
-| Shares | Create, list, revoke per-document | Yes |
-| Audit | Query audit logs | Yes |
+| `MAX_UPLOAD_SIZE_MB` | Maximum file upload size in megabytes | `25` |
 
 ## Testing
 
@@ -94,54 +79,44 @@ All endpoints under `/api/v1`. See [`docs/api.md`](docs/api.md) for full details
 # Install dev dependencies
 pip install -e ".[dev]"
 
-# Run all tests
-make test
+# Run full test suite with coverage
+pytest --cov=app --cov-report=term-missing --cov-fail-under=85
 
-# Run only unit tests
-make test-unit
-
-# Run only integration tests
-make test-integration
-
-# Check coverage (85% gate enforced)
-pytest --cov=app --cov-report=html
+# Lint and type check
+ruff check app tests
+ruff format --check app tests
+mypy app tests
 ```
 
 ## Security
 
-See [`docs/security.md`](docs/security.md) for the full security model. Highlights:
+See [`docs/security.md`](docs/security.md) for the complete security model. Highlights:
 
-- Argon2id password hashing with tuned cost parameters
-- Short-lived JWT access tokens (15 min) + rotating refresh tokens
+- Argon2id password hashing configured with memory-hard parameters
+- Short-lived JWT access tokens (15 min) + rotating refresh tokens (7 days)
 - Refresh token reuse detection with family revocation
-- Deny-by-default authorization with central policy module
+- Deny-by-default authorization with central pure policy module
+- Leakage prevention rule (non-members receive 404 Not Found, never 403)
 - File upload validation: size limits, MIME allowlist, magic-byte verification
 - Downloads served with `Content-Disposition: attachment`, never inline
-- Append-only audit log (DB role cannot UPDATE/DELETE)
-- Security headers: HSTS, nosniff, DENY framing, no-referrer
-- Rate limiting on auth and upload endpoints
-- Account lockout after failed login attempts
+- Append-only audit log with foreign key cascade protection
+- Security headers: HSTS, nosniff, DENY framing, no-referrer, CSP
+- Rate limiting on auth and upload endpoints with Retry-After header
 
 ## Design Decisions
 
 See [`docs/decisions/`](docs/decisions/) for Architecture Decision Records (ADRs):
 
-- ADR-0001: JWT + Refresh Token Rotation
-- ADR-0002: Storage Abstraction Interface
-- ADR-0003: Deny-by-Default Authorization
-
-## Known Limitations
-
-- No email delivery — password reset tokens logged to console
-- No antivirus scanning — hook stub provided, not implemented
-- S3 storage not included in default docker-compose
-- No full-text semantic search
-- No real-time collaboration
-- No AI/ML features (by design)
+- [ADR-0001: JWT Access & Refresh Token Rotation with Replay Detection](docs/decisions/ADR-0001-jwt-refresh-rotation.md)
+- [ADR-0002: Deny-by-Default Central Authorization Policy](docs/decisions/ADR-0002-deny-by-default-authorization-policy.md)
+- [ADR-0003: Document Search Strategy (GIN Trigram Indexing vs FTS)](docs/decisions/ADR-0003-document-search-strategy.md)
+- [ADR-0004: Cross-Tenant Sharing Model & Leakage Prevention Rule](docs/decisions/ADR-0004-cross-tenant-sharing.md)
+- [ADR-0005: Append-Only Audit Trail Architecture and Immutability Guarantees](docs/decisions/ADR-0005-append-only-audit-trail.md)
+- [ADR-0006: Rate Limiting Strategy, Request Hardening, and HTTP Security Headers](docs/decisions/ADR-0006-rate-limiting-and-defense-in-depth.md)
 
 ## Build Log
 
-See [`BUILD_LOG.md`](BUILD_LOG.md) — a chronological record of every real problem encountered during development and how it was resolved.
+See [`BUILD_LOG.md`](BUILD_LOG.md) — an engineering journal recording every real problem encountered during development and how it was resolved.
 
 ## License
 

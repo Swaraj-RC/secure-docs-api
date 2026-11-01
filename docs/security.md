@@ -1,45 +1,46 @@
-# Security Model
+# Security Architecture & Threat Model
 
-## Authentication
+## Threat Model & Mitigations
 
-### Password Storage
-- Argon2id with tuned cost parameters
-- No password length cap below 64 characters
-- Minimum 8 characters enforced
+| Threat Category | Potential Attack Vector | Mitigation in Architecture |
+|---|---|---|
+| **Credential Stuffing & Brute Force** | Dictionary attacks on `/auth/login` | Argon2id memory-hard password hashing + Per-user consecutive failure lockout (5 attempts / 15-min lock) + SlowAPI IP rate limiting (10 req/min). |
+| **Token Theft & Replay** | Intercepted refresh token reuse | Rotating refresh tokens: single-use opaque tokens. Presentation of an already-used refresh token triggers family revocation, invalidating all associated sessions immediately. |
+| **Cross-Tenant Data Leakage** | Guessing UUIDs across tenant boundaries | *Leakage Prevention Rule*: callers with no tenant membership or active share receive `404 Not Found` rather than `403 Forbidden`, preventing resource existence probing. |
+| **Malicious File Upload** | Executables masked with `.pdf` extension | Magic byte header sniffing via `libmagic` (`python-magic`); user-supplied file extensions and MIME headers are discarded. |
+| **Path Traversal & Storage Exploits** | Files named `../../etc/passwd` | Storage keys are opaque randomly generated UUIDs (`uuid.uuid4()`); original user filenames are strictly isolated to database metadata columns. |
+| **Unbounded Payload DoS** | Enormous file streaming exhausting server memory | Early `Content-Length` inspection middleware rejecting payloads > 100MB before body parsing + chunked streaming validation in 64KB buffers. |
+| **Browser Attacks & MIME Confusions** | Clickjacking, XSS, content sniffing | HTTP headers: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Content-Security-Policy: default-src 'none'`, and HSTS in production. |
+| **Audit Log Tampering** | Malicious deletion of audit logs | Append-only schema with zero update/delete API routes, foreign key constraints with `ON DELETE RESTRICT` on actors, and immutable chronological recording. |
 
-### JWT Access Tokens
-- HS256 signed with `SECRET_KEY`
-- 15-minute expiry
-- Claims: `sub` (user ID), `jti` (unique ID), `iat` (issued at)
-- No PII in claims
-- Clock skew tolerance: 30 seconds
+## Authentication Architecture
 
-### Refresh Tokens
-- 256-bit random, only SHA-256 hash stored
-- Single-use: every refresh rotates the token
-- Family-based reuse detection: if a used token is replayed, the entire family is revoked
-- 7-day expiry
+### Password Storage: Argon2id
+Passwords are hashed using `argon2-cffi` configured with RFC 9106 recommended parameters:
+- Algorithm: Argon2id
+- Time cost: 3 iterations
+- Memory cost: 64 MB ($65,536$ KiB)
+- Parallelism: 4 lanes
 
-## Authorization
+### Access & Refresh Token Lifecycle
+1. **Access Tokens:** Short-lived (15 minutes), signed using HMAC-SHA256 (`HS256`). Contain `sub` (User UUID), `exp`, `iat`, and `jti`.
+2. **Refresh Tokens:** High-entropy cryptographically secure tokens (`secrets.token_urlsafe(48)`). Stored exclusively as SHA-256 hashes (`token_hash`) in the database; raw tokens are never persisted.
+3. **Rotation & Replay Detection:**
+   - Every call to `POST /auth/refresh` issues a new token pair and revokes the submitted refresh token.
+   - If an already-revoked refresh token is presented, the system detects a token theft replay attack and immediately revokes all refresh tokens issued to that user.
 
-- Deny-by-default: every route has an explicit auth dependency
-- RBAC: workspace roles (owner > admin > member > viewer)
-- ACL: per-document shares (read/write) with optional expiry
-- Classification gates: confidential/restricted docs require elevated access
-- Leakage rule: non-members get 404, insufficient-permission members get 403
+## Authorization & Policy Model
 
-## File Security
+Access evaluation is strictly deny-by-default and evaluated using pure functions in `app/policies/access.py`:
 
-- Upload: size limit → MIME allowlist → magic-byte verification → checksum → opaque key storage
-- Download: authorize → stream by opaque key → `Content-Disposition: attachment` → `nosniff`
-- No user filenames in storage paths
-- Path traversal protection: null bytes, `../`, control characters stripped
+```
+Access Matrix:
+Classification | Workspace Owner/Admin | Workspace Member | Workspace Viewer | Non-Member
+---------------+-----------------------+------------------+------------------+------------
+public         | Full (Read/Write)     | Read             | Read             | None (404)
+internal       | Full (Read/Write)     | Read             | Read             | None (404)
+confidential   | Full (Read/Write)     | Own only (or ACL)| None (or ACL)    | None (404)
+restricted     | Full (Read/Write)     | Own only (or ACL)| None (or ACL)    | None (404)
+```
 
-## Infrastructure
-
-- Security headers: HSTS, X-Content-Type-Options, X-Frame-Options, Referrer-Policy
-- CORS: explicit origin allowlist from environment
-- Rate limiting: auth endpoints, file uploads
-- Account lockout: 5 failed attempts → 15 minute lockout
-- Structured errors: never leak stack traces or SQL
-- Secrets: environment variables only, fail-fast in production if missing
+- **Sharing Grants:** Document owners and workspace admins can grant `read` or `write` access. Regular members can only grant `read` access. Grantees cannot grant permissions greater than what they possess.
