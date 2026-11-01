@@ -16,6 +16,7 @@ from app.policies.access import (
     is_share_active,
 )
 from app.schemas.share import ShareCreate
+from app.services.audit_service import record_audit_event
 
 
 async def get_active_share(
@@ -42,6 +43,8 @@ async def grant_share(
     actor: User,
     doc_id: uuid.UUID,
     payload: ShareCreate,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> DocumentShare:
     stmt = select(Document).where(Document.id == doc_id).where(Document.deleted_at.is_(None))
     result = await db.scalars(stmt)
@@ -105,6 +108,24 @@ async def grant_share(
         )
         db.add(share)
 
+    await db.flush()
+
+    perm_val = share.permission.value if hasattr(share.permission, "value") else share.permission
+    await record_audit_event(
+        db,
+        workspace_id=doc.workspace_id,
+        actor_id=actor.id,
+        action="share.create",
+        resource_type="document_share",
+        resource_id=share.id,
+        metadata={
+            "target_user_id": str(target_user.id),
+            "permission": str(perm_val),
+        },
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
     doc.updated_at = datetime.now(UTC)
     await db.commit()
     await db.refresh(share)
@@ -150,6 +171,8 @@ async def revoke_share(
     actor: User,
     doc_id: uuid.UUID,
     share_id: uuid.UUID,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> None:
     stmt = select(Document).where(Document.id == doc_id).where(Document.deleted_at.is_(None))
     result = await db.scalars(stmt)
@@ -176,6 +199,18 @@ async def revoke_share(
     share = (await db.scalars(share_stmt)).first()
     if not share:
         raise NotFoundError("Share not found", code="SHARE_NOT_FOUND")
+
+    await record_audit_event(
+        db,
+        workspace_id=doc.workspace_id,
+        actor_id=actor.id,
+        action="share.revoke",
+        resource_type="document_share",
+        resource_id=share.id,
+        metadata={"target_user_id": str(share.user_id)},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
 
     await db.delete(share)
     doc.updated_at = datetime.now(UTC)

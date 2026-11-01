@@ -48,6 +48,10 @@ def can_create_document(role: WorkspaceRole | None) -> bool:
     return role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.MEMBER)
 
 
+def can_view_audit_logs(role: WorkspaceRole | None) -> bool:
+    return role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+
+
 def is_share_active(share: ShareAccessProtocol | None, now: datetime | None = None) -> bool:
     if not share:
         return False
@@ -69,9 +73,10 @@ def can_view_document(
     share: ShareAccessProtocol | None = None,
     now: datetime | None = None,
 ) -> bool:
-    # Non-member with no active share has zero access
-    if role is None and not is_share_active(share, now):
-        return False
+    if doc.status == "archived":
+        if doc.owner_id == actor_id:
+            return True
+        return role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
 
     if doc.owner_id == actor_id:
         return True
@@ -79,13 +84,19 @@ def can_view_document(
     if role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
         return True
 
-    if is_share_active(share, now):
-        return True
-
-    if role in (WorkspaceRole.MEMBER, WorkspaceRole.VIEWER):
-        return doc.classification in ("public", "internal")
-
-    return False
+    match doc.classification:
+        case "public":
+            return role is not None or is_share_active(share, now)
+        case "internal":
+            return (role in (WorkspaceRole.MEMBER, WorkspaceRole.VIEWER)) or is_share_active(
+                share, now
+            )
+        case "confidential":
+            return is_share_active(share, now)
+        case "restricted":
+            return is_share_active(share, now)
+        case _:
+            return False
 
 
 def can_edit_document(
@@ -95,7 +106,7 @@ def can_edit_document(
     share: ShareAccessProtocol | None = None,
     now: datetime | None = None,
 ) -> bool:
-    if role is None and not is_share_active(share, now):
+    if doc.status == "archived":
         return False
 
     if doc.owner_id == actor_id:
@@ -104,7 +115,25 @@ def can_edit_document(
     if role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
         return True
 
-    return bool(is_share_active(share, now) and share is not None and share.permission == "write")
+    return bool(share and share.permission == "write" and is_share_active(share, now))
+
+
+def can_delete_document(
+    actor_id: uuid.UUID,
+    doc: DocumentAccessProtocol,
+    role: WorkspaceRole | None,
+) -> bool:
+    if doc.owner_id == actor_id:
+        return True
+    return role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
+
+
+def can_restore_document(
+    actor_id: uuid.UUID,
+    doc: DocumentAccessProtocol,
+    role: WorkspaceRole | None,
+) -> bool:
+    return role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN)
 
 
 def can_upload_version(
@@ -114,16 +143,7 @@ def can_upload_version(
     share: ShareAccessProtocol | None = None,
     now: datetime | None = None,
 ) -> bool:
-    if role is None and not is_share_active(share, now):
-        return False
-
-    if doc.owner_id == actor_id:
-        return True
-
-    if role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN, WorkspaceRole.MEMBER):
-        return True
-
-    return bool(is_share_active(share, now) and share is not None and share.permission == "write")
+    return can_edit_document(actor_id, doc, role, share, now)
 
 
 def can_download_document(
@@ -133,7 +153,7 @@ def can_download_document(
     share: ShareAccessProtocol | None = None,
     now: datetime | None = None,
 ) -> bool:
-    return can_view_document(actor_id=actor_id, doc=doc, role=role, share=share, now=now)
+    return can_view_document(actor_id, doc, role, share, now)
 
 
 def can_manage_shares(

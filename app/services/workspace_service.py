@@ -15,6 +15,7 @@ from app.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
+from app.services.audit_service import record_audit_event
 
 
 async def create_workspace(
@@ -41,6 +42,18 @@ async def create_workspace(
         role=WorkspaceRole.OWNER,
     )
     db.add(member)
+    await db.flush()
+
+    await record_audit_event(
+        db,
+        workspace_id=ws.id,
+        actor_id=actor.id,
+        action="ws.create",
+        resource_type="workspace",
+        resource_id=ws.id,
+        metadata={"name": ws.name, "slug": ws.slug},
+    )
+
     await db.commit()
     await db.refresh(ws)
     return ws
@@ -193,6 +206,21 @@ async def add_member(
         invited_by=actor.id,
     )
     db.add(new_member)
+    await db.flush()
+
+    await record_audit_event(
+        db,
+        workspace_id=ws_id,
+        actor_id=actor.id,
+        action="ws.member_add",
+        resource_type="member",
+        resource_id=new_member.id,
+        metadata={
+            "target_user_id": str(target_user.id),
+            "role": str(payload.role.value if hasattr(payload.role, "value") else payload.role),
+        },
+    )
+
     await db.commit()
     await db.refresh(new_member)
 
@@ -233,6 +261,20 @@ async def update_member_role(
         raise ValidationError("Cannot transfer ownership via role change", code="VALIDATION_ERROR")
 
     target_mem.role = payload.role
+
+    await record_audit_event(
+        db,
+        workspace_id=ws_id,
+        actor_id=actor.id,
+        action="ws.member_update",
+        resource_type="member",
+        resource_id=target_mem.id,
+        metadata={
+            "target_user_id": str(target_user_id),
+            "new_role": str(payload.role.value if hasattr(payload.role, "value") else payload.role),
+        },
+    )
+
     await db.commit()
     await db.refresh(target_mem)
 
@@ -279,6 +321,16 @@ async def remove_member(
         and not is_self_removal
     ):
         raise ForbiddenError("Admins cannot remove other admins", code="FORBIDDEN")
+
+    await record_audit_event(
+        db,
+        workspace_id=ws_id,
+        actor_id=actor.id,
+        action="ws.member_remove",
+        resource_type="member",
+        resource_id=target_mem.id,
+        metadata={"target_user_id": str(target_user_id)},
+    )
 
     await db.delete(target_mem)
     await db.commit()

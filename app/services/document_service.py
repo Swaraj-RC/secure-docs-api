@@ -25,6 +25,7 @@ from app.policies.access import (
     is_share_active,
 )
 from app.schemas.document import DocumentCreate, DocumentUpdate
+from app.services.audit_service import record_audit_event
 from app.services.file_validation import process_streaming_upload
 from app.services.share_service import get_active_share
 from app.storage.base import StorageBackend
@@ -55,6 +56,8 @@ async def create_document(
     actor: User,
     ws_id: uuid.UUID,
     payload: DocumentCreate,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> Document:
     member = await get_workspace_membership(db, ws_id, actor.id)
     if not member or not can_view_workspace(member.role):
@@ -76,6 +79,23 @@ async def create_document(
         created_by=actor.id,
     )
     db.add(doc)
+    await db.flush()
+
+    classification_str = (
+        doc.classification.value if hasattr(doc.classification, "value") else doc.classification
+    )
+    await record_audit_event(
+        db,
+        workspace_id=ws_id,
+        actor_id=actor.id,
+        action="doc.create",
+        resource_type="document",
+        resource_id=doc.id,
+        metadata={"title": doc.title, "classification": str(classification_str)},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+
     await db.commit()
     await db.refresh(doc)
     return doc
@@ -124,15 +144,26 @@ async def list_documents(
     if not member or not can_view_workspace(member.role):
         raise NotFoundError("Workspace not found", code="WORKSPACE_NOT_FOUND")
 
-    query = (
-        select(Document).where(Document.workspace_id == ws_id).where(Document.deleted_at.is_(None))
+    query = select(Document).where(
+        Document.workspace_id == ws_id,
+        Document.deleted_at.is_(None),
     )
 
-    if member.role in (WorkspaceRole.MEMBER, WorkspaceRole.VIEWER):
+    # Classification & status visibility filtering
+    if member.role in (WorkspaceRole.OWNER, WorkspaceRole.ADMIN):
+        pass
+    else:
+        # Regular members/viewers can only see public/internal documents or documents they own
         query = query.where(
             or_(
-                Document.classification.in_([DocClassification.PUBLIC, DocClassification.INTERNAL]),
                 Document.owner_id == actor.id,
+                Document.classification.in_([DocClassification.PUBLIC, DocClassification.INTERNAL]),
+            )
+        )
+        query = query.where(
+            or_(
+                Document.owner_id == actor.id,
+                Document.status != DocStatus.ARCHIVED,
             )
         )
 
@@ -190,6 +221,8 @@ async def update_document(
     actor: User,
     doc_id: uuid.UUID,
     payload: DocumentUpdate,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> Document:
     stmt = select(Document).where(Document.id == doc_id).where(Document.deleted_at.is_(None))
     result = await db.scalars(stmt)
@@ -226,6 +259,17 @@ async def update_document(
 
     if updated:
         doc.updated_at = datetime.now(UTC)
+        await record_audit_event(
+            db,
+            workspace_id=doc.workspace_id,
+            actor_id=actor.id,
+            action="doc.update",
+            resource_type="document",
+            resource_id=doc.id,
+            metadata={"updates": payload.model_dump(exclude_unset=True, mode="json")},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
         await db.commit()
         await db.refresh(doc)
 
@@ -236,6 +280,8 @@ async def delete_document(
     db: AsyncSession,
     actor: User,
     doc_id: uuid.UUID,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> None:
     stmt = select(Document).where(Document.id == doc_id).where(Document.deleted_at.is_(None))
     result = await db.scalars(stmt)
@@ -252,6 +298,16 @@ async def delete_document(
     enforce_document_access(can_delete, is_member, "delete document")
 
     doc.deleted_at = datetime.now(UTC)
+    await record_audit_event(
+        db,
+        workspace_id=doc.workspace_id,
+        actor_id=actor.id,
+        action="doc.delete",
+        resource_type="document",
+        resource_id=doc.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
     await db.commit()
 
 
@@ -259,6 +315,8 @@ async def restore_document(
     db: AsyncSession,
     actor: User,
     doc_id: uuid.UUID,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> Document:
     stmt = select(Document).where(Document.id == doc_id)
     result = await db.scalars(stmt)
@@ -273,6 +331,16 @@ async def restore_document(
 
     doc.deleted_at = None
     doc.updated_at = datetime.now(UTC)
+    await record_audit_event(
+        db,
+        workspace_id=doc.workspace_id,
+        actor_id=actor.id,
+        action="doc.restore",
+        resource_type="document",
+        resource_id=doc.id,
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
     await db.commit()
     await db.refresh(doc)
     return doc
@@ -284,6 +352,8 @@ async def upload_document_version(
     actor: User,
     doc_id: uuid.UUID,
     file: UploadFile,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> DocumentVersion:
     stmt = select(Document).where(Document.id == doc_id).where(Document.deleted_at.is_(None))
     result = await db.scalars(stmt)
@@ -337,6 +407,23 @@ async def upload_document_version(
 
         doc.current_version_id = version.id
         doc.updated_at = datetime.now(UTC)
+
+        await record_audit_event(
+            db,
+            workspace_id=doc.workspace_id,
+            actor_id=actor.id,
+            action="doc.version_create",
+            resource_type="document_version",
+            resource_id=version.id,
+            metadata={
+                "version_number": version.version_number,
+                "size_bytes": version.size_bytes,
+                "mime_type": version.mime_type,
+            },
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
         await db.commit()
         await db.refresh(version)
         return version
@@ -370,6 +457,8 @@ async def get_document_version_for_download(
     actor: User,
     doc_id: uuid.UUID,
     version_id: uuid.UUID,
+    ip_address: str | None = None,
+    user_agent: str | None = None,
 ) -> tuple[Document, DocumentVersion]:
     doc = await get_document(db=db, actor=actor, doc_id=doc_id)
     member = await get_workspace_membership(db, doc.workspace_id, actor.id)
@@ -394,5 +483,18 @@ async def get_document_version_for_download(
     version = result.first()
     if not version:
         raise NotFoundError("Version not found", code="VERSION_NOT_FOUND")
+
+    await record_audit_event(
+        db,
+        workspace_id=doc.workspace_id,
+        actor_id=actor.id,
+        action="doc.download",
+        resource_type="document_version",
+        resource_id=version.id,
+        metadata={"version_number": version.version_number},
+        ip_address=ip_address,
+        user_agent=user_agent,
+    )
+    await db.commit()
 
     return doc, version
