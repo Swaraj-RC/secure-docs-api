@@ -110,6 +110,21 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 
 ---
 
+
+### 2026-11-01 ? Coverage drops under async SQLAlchemy greenlet execution
+- **Area:** Testing / Test Coverage (pyproject.toml)
+- **Symptom:** Total coverage dropped to 79.17% (failing 85% gate) with large blocks of auth_service.py and workspace_service.py reported missing despite integration tests hitting every endpoint.
+- **Context:** Executing Day 4 workspace and membership integration tests using AsyncClient and async database sessions.
+- **Investigation:** Verified tests were genuinely passing and hitting the endpoints. Traced execution: SQLAlchemy asyncio delegates dialect execution into greenlet worker threads. By default, coverage.py only traces the main thread.
+- **Root cause:** Without explicit concurrency configuration, coverage.py silently ignores code running inside greenlet threads spawned by SQLAlchemy async engine.
+- **Fix:** Added [tool.coverage.run] with concurrency = ["thread", "greenlet"] and branch = true in pyproject.toml.
+- **Verification:** Re-running pytest showed measured coverage jump from 79.17% to 91.68% across all 34 passing tests.
+- **Lesson:** Always configure concurrency = ["thread", "greenlet"] in coverage settings for any project using SQLAlchemy 2.0 asyncio.
+- **If asked in an interview:** "SQLAlchemy's async engine coordinates with greenlet threads under the hood. Without concurrency = ['thread', 'greenlet'] declared in pyproject.toml, coverage.py ignores code executed inside those greenlets, causing false coverage drops."
+- **Time cost:** ~10 min
+
+---
+
 ## Open Questions / Known Limitations
 
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`
