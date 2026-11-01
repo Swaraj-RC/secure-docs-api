@@ -34,4 +34,3 @@ def test_setup_logging_json() -> None:
     setup_logging(json_logs=False, log_level="INFO")
     logger = get_logger()
     assert logger is not None
-

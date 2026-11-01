@@ -84,6 +84,18 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - **If asked in an interview:** "If an endpoint throws an unhandled exception, it aborts `BaseHTTPMiddleware` execution before post-processing. Catching it in the middleware and returning the standard 500 error response guarantees security headers and request IDs are attached to every single HTTP response, even crashed ones."
 - **Time cost:** ~10 min
 
+### 2026-11-01 — PostgreSQL dialect shims for local SQLite test runner
+- **Area:** Database / Testing (`sqlalchemy` + `tests/conftest.py`)
+- **Symptom:** `CompileError: (sqlite) Don't know how to compile type CITEXT / UUID` when attempting to run async database integration tests locally without an active Docker daemon.
+- **Context:** Implementing Day 2 User model using PostgreSQL-native types (`CITEXT`, `UUID`) while maintaining fast developer test execution without mandatory Docker service startup.
+- **Investigation:** Explored running `testcontainers[postgres]`, which failed because the local Windows Docker pipe was not accessible (`FileNotFoundError: \\.\pipe\docker_engine`). SQLite doesn't natively support PostgreSQL extension types like `CITEXT`, `UUID`, `INET`, or `JSONB`.
+- **Root cause:** SQLAlchemy's SQLite dialect compiler aborts on encountering PostgreSQL-specific dialect types during DDL execution (`Base.metadata.create_all`).
+- **Fix:** In `tests/conftest.py`, registered SQLAlchemy `@compiles` shims for `CITEXT` -> `TEXT`, `UUID` -> `CHAR(36)`, `JSONB` -> `TEXT`, and `INET` -> `VARCHAR(45)` under SQLite, while falling back to `sqlite+aiosqlite:///:memory:` when `DATABASE_URL` is unset.
+- **Verification:** Both PostgreSQL model definitions and integration tests pass without error locally on in-memory SQLite and against real PostgreSQL in CI.
+- **Lesson:** Use dialect compilation overrides in test configuration to keep tests self-contained and runnable offline without sacrificing database-native types in production schema models.
+- **If asked in an interview:** "We use PostgreSQL-specific types like CITEXT for case-insensitive uniqueness and UUID for keys. To keep local test suites runnable in under a second without requiring a live Docker daemon, we registered SQLAlchemy compiler shims that map those types to SQLite primitives during test fixture initialization."
+- **Time cost:** ~15 min
+
 ---
 
 ## Open Questions / Known Limitations

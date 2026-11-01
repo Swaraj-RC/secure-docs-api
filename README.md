@@ -47,7 +47,7 @@ Organizations need a secure, auditable system to manage documents across teams w
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/secure-docs-api.git
+git clone https://github.com/Swaraj-RC/secure-docs-api.git
 cd secure-docs-api
 
 # Start services
