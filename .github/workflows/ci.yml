@@ -127,7 +127,7 @@ jobs:
       - name: Verify migration upgrade head -> downgrade base -> upgrade head cycle
         env:
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
-        run: pytest tests/integration/test_migrations.py -k test_alembic_upgrade_downgrade_cycle -v
+        run: pytest tests/integration/test_migrations.py -k test_alembic_upgrade_downgrade_cycle -v --no-cov
 
   docker-build:
     runs-on: ubuntu-latest
