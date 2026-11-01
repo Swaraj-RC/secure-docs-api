@@ -14,10 +14,12 @@ from app.db.models import *  # noqa: F401, F403 — import all models for autoge
 config = context.config
 settings = get_settings()
 
-# Preserve sqlalchemy.url if explicitly set (e.g. tests or CLI), otherwise use settings
-target_url = config.get_main_option("sqlalchemy.url")
-if not target_url or not target_url.strip():
-    target_url = settings.DATABASE_URL
+# Preserve explicit URL if set by test runner, otherwise resolve from env or settings
+raw_url = config.get_main_option("sqlalchemy.url")
+if raw_url and "driver://user:pass" not in raw_url and raw_url.strip():
+    target_url = raw_url
+else:
+    target_url = os.environ.get("DATABASE_URL") or settings.DATABASE_URL
 config.set_main_option("sqlalchemy.url", target_url)
 
 if config.config_file_name is not None:

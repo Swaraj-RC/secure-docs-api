@@ -84,7 +84,7 @@ known-first-party = ["app"]
 python_version = "3.12"
 strict = true
 warn_return_any = true
-warn_unused_configs = true
+warn_unused_configs = false
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 plugins = ["pydantic.mypy"]
@@ -98,9 +98,14 @@ module = [
     "factory.*",
     "asyncpg.*",
     "aiosqlite.*",
-    "pytest_asyncio.*",
 ]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
