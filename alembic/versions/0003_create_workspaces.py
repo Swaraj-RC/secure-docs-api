@@ -109,3 +109,4 @@ def downgrade() -> None:
         "owner", "admin", "member", "viewer", name="workspace_role", create_type=False
     )
     role_enum.drop(op.get_bind(), checkfirst=True)
+

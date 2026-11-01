@@ -71,3 +71,4 @@ def test_refresh_token_hashing() -> None:
     hash2 = hash_refresh_token(token1)
     assert hash1 == hash2
     assert len(hash1) == 64
+

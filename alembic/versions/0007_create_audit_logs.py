@@ -85,3 +85,4 @@ def downgrade() -> None:
     op.drop_index("ix_audit_actor", table_name="audit_logs")
     op.drop_index("ix_audit_workspace_created", table_name="audit_logs")
     op.drop_table("audit_logs")
+

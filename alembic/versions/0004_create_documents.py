@@ -134,3 +134,4 @@ def downgrade() -> None:
         "draft", "active", "archived", name="doc_status", create_type=False
     )
     status_enum.drop(bind, checkfirst=True)
+

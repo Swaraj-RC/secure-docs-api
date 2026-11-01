@@ -71,3 +71,4 @@ def downgrade() -> None:
         "read", "write", name="share_permission", create_type=False
     )
     perm_enum.drop(bind, checkfirst=True)
+

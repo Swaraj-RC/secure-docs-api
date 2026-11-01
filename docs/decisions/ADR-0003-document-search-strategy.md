@@ -24,3 +24,4 @@ We adopt `pg_trgm` with a GIN index on `title` in PostgreSQL for production, com
 - Fast substring search in PostgreSQL without full table scans even with millions of documents per workspace.
 - GIN index writes have slight overhead during document creation and title updates, which is acceptable because document writes are low-frequency compared to reads and searches.
 - Test suite compatibility is preserved across both PostgreSQL and SQLite runners.
+

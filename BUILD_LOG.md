@@ -25,6 +25,7 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 | 2026-11-01 | RFC 5987 / RFC 6266 dual Content-Disposition encoding | Bare ASCII filename | Preserves international UTF-8 filenames in modern browsers via filename*= while supplying sanitized ASCII fallback for legacy HTTP clients. |
 | 2026-11-01 | Storage-level offset/length streaming for byte-range requests | In-memory slicing | Prevents loading multi-megabyte files into RAM; seeks file pointer directly on disk or S3 byte range. |
 | 2026-11-01 | Controlled cross-tenant document sharing with least-privilege scoping | Strict intra-workspace sharing only | Permits external B2B collaboration/auditing for designated records without granting visibility into workspace tenant membership or other documents (ADR-0004). |
+| 2026-11-01 | Production multi-worker Compose configuration with resource limits | Single-worker / host process | Uvicorn with 4 workers maximizes multi-core CPU utilization; CPU/memory limits prevent resource starvation in shared environments. |
 
 ---
 
@@ -239,6 +240,26 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 - **Lesson:** Always use HTTP client query parameter dictionaries rather than manual URL string interpolation when transmitting ISO datetimes.
 - **If asked in an interview:** "Raw `+` in URL query strings decodes as a space on HTTP servers. Transmitting ISO timestamps like `2026-11-06T12:00:00+00:00` in raw query strings breaks datetime parsing because `+00:00` becomes ` 00:00`. Passing parameters via structured dicts ensures proper `%2B` percent-encoding."
 - **Time cost:** ~5 min
+
+---
+
+### 2026-11-01 — Day 14 Retrospective & Release Readiness
+
+#### What Went Well
+1. **Deny-by-Default Pure Policy Module:** Decoupling access control logic from ORM models and endpoint handlers made testing authorization matrix exhaustive, fast, and bug-free. In 100+ tests, not a single permission bug leaked across tenants.
+2. **Deterministic Token Rotation:** Rotating refresh tokens with family revocation cleanly defended against token replay while maintaining stateless access tokens for optimal API latency.
+3. **Structured RFC 7807 Error Envelope:** Consistent machine-readable error codes and request tracing simplified debugging, middleware diagnostics, and client contract testing.
+4. **Fast Local Test Loop:** Shimming Postgres dialect types for SQLite allowed 101 tests to run locally in ~16 seconds without requiring a running Docker daemon, accelerating feedback loops.
+
+#### What Was Harder Than Expected
+1. **Async SQLAlchemy Greenlet Coverage:** Tracking code coverage across SQLAlchemy 2.0 async greenlet worker threads required specific `concurrency = ["thread", "greenlet"]` configuration in `pyproject.toml` to avoid false unexecuted line reports.
+2. **Cross-Platform Platform Quirks:** Windows cp1252 charmap encoding errors triggered by unicode arrows in error formatters and CRLF issues in Linux shell scripts reminded us why defense-in-depth and ASCII standards remain best practice.
+3. **Pydantic Validation Nuances:** RFC 2606 special-use domain restrictions and `Model.metadata` namespace collisions required precise handling to ensure clean interoperability between SQLAlchemy and Pydantic v2.
+
+#### What Would Change in v2
+1. **Distributed Rate Limiting:** Swap SlowAPI's in-memory storage for Redis to support horizontally autoscaled API replicas.
+2. **Transactional Outbox for Audit Logs:** Write audit records to a transactional outbox table or message queue (Kafka / RabbitMQ) to decouple audit I/O latency from core document transactions.
+3. **Direct-to-S3 Presigned Uploads:** For files larger than 100MB, generate presigned S3 upload URLs with client-side checksums to offload upload bandwidth entirely from the API servers.
 
 ---
 

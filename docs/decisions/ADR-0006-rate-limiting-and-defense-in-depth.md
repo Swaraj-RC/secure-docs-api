@@ -30,3 +30,4 @@ We implement a comprehensive defense-in-depth hardening layer:
 ## Consequences
 - Single-instance deployments operate seamlessly with in-memory tracking.
 - Horizontal scaling across multi-node clusters will require switching SlowAPI's storage backend to Redis (`REDIS_URL`).
+

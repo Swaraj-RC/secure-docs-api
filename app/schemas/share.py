@@ -33,3 +33,4 @@ class ShareResponse(BaseModel):
     granted_by: uuid.UUID
     expires_at: datetime | None
     created_at: datetime
+

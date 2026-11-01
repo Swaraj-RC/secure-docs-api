@@ -44,3 +44,19 @@ restricted     | Full (Read/Write)     | Own only (or ACL)| None (or ACL)    | N
 ```
 
 - **Sharing Grants:** Document owners and workspace admins can grant `read` or `write` access. Regular members can only grant `read` access. Grantees cannot grant permissions greater than what they possess.
+
+
+## OWASP API Security Top 10 (2023) Review
+
+| Category | Vulnerability | Architecture Defense & Implementation |
+|---|---|---|
+| **API1:2023** | Broken Object Level Authorization (BOLA) | Every resource endpoint enforces pure `can_*` functions from `app/policies/access.py`. Cross-tenant probes yield 404 rather than 403 to prevent enumeration. |
+| **API2:2023** | Broken Authentication | Argon2id memory-hard hashing, rotating single-use refresh tokens with family revocation on replay, consecutive failure lockout, and strict token expiration. |
+| **API3:2023** | Broken Object Property Level Authorization | Separate strict Pydantic schemas for Request and Response models. Sensitive attributes (e.g. `password_hash`, internal storage paths) are never exposed. |
+| **API4:2023** | Unrestricted Resource Consumption | Upload size capped at 25MB (configurable), request body inspection middleware blocks >100MB before body parsing, pagination capped at `page_size <= 100`, SlowAPI rate limiting (10 req/min on auth & uploads). |
+| **API5:2023** | Broken Function Level Authorization (BFLA) | Role hierarchy strictly verified (`owner` > `admin` > `member` > `viewer`). Admin operations (e.g. workspace membership changes, document restoration) verify role before service invocation. |
+| **API6:2023** | Unrestricted Access to Sensitive Business Flows | Token rotation invalidates previous tokens; file upload pipeline enforces streaming chunk inspection, magic-byte MIME detection, and SHA-256 integrity validation. |
+| **API7:2023** | Server Side Request Forgery (SSRF) | Zero user-supplied URLs are fetched by the server. S3 storage uses IAM credentials or signed URLs directly with configured AWS endpoints. |
+| **API8:2023** | Security Misconfiguration | Strict CORS policy, `DEBUG=False` in production, fail-fast production startup validation (rejecting default secrets), and comprehensive security headers (`nosniff`, `DENY`, `no-referrer`, `CSP`, `HSTS`). |
+| **API9:2023** | Improper Inventory Management | Strict API versioning under `/api/v1`, OpenAPI schema dynamically generated from Pydantic types, deprecated routes retired cleanly. |
+| **API10:2023** | Unsafe Consumption of APIs | The service does not consume untrusted third-party HTTP APIs. Downstream dependencies are restricted to PostgreSQL and optional S3/boto3. |

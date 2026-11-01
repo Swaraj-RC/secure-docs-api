@@ -24,3 +24,4 @@ We implement a hybrid token architecture:
 
 - **Positive:** Compromised refresh tokens are limited in lifespan and detected automatically on replay. Access tokens require zero database round trips for signature verification.
 - **Negative:** Access tokens cannot be revoked before their 15-minute expiration without maintaining a distributed deny-list. This trade-off is accepted in favor of reduced database load.
+

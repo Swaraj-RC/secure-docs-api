@@ -41,3 +41,4 @@ class User(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
