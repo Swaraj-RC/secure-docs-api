@@ -22,4 +22,3 @@ class AuditLogResponse(BaseModel):
         serialization_alias="metadata",
     )
     created_at: datetime
-

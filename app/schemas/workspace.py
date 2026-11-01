@@ -46,4 +46,3 @@ class MemberResponse(BaseModel):
     email: str
     full_name: str
     created_at: datetime
-

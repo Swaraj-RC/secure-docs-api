@@ -121,4 +121,3 @@ async def list_user_audit_logs(
     items = list((await db.scalars(items_query)).all())
 
     return Page.create(items=items, total=total, params=pagination)
-

@@ -40,4 +40,3 @@ async def test_user_email_unique_constraint(db_session: AsyncSession) -> None:
     with pytest.raises(IntegrityError):
         await db_session.commit()
     await db_session.rollback()
-

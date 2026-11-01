@@ -59,4 +59,3 @@ class AuditLog(Base, UUIDMixin):
         Index("ix_audit_actor", "actor_id", created_at.desc()),
         Index("ix_audit_resource", "resource_type", "resource_id"),
     )
-

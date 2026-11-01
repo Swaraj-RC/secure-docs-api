@@ -66,4 +66,3 @@ class DocumentShare(Base):
     document = relationship("Document", backref="shares")
     user = relationship("User", foreign_keys=[user_id])
     granter = relationship("User", foreign_keys=[granted_by])
-

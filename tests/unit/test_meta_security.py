@@ -39,4 +39,3 @@ def test_meta_assert_all_non_public_routes_require_authentication() -> None:
             f"SECURITY VIOLATION: Route '{path}' [{','.join(route.methods)}] "
             "is not in the public allowlist and has no authentication dependency attached!"
         )
-

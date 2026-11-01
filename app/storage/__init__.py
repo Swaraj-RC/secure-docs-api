@@ -15,4 +15,3 @@ def get_storage() -> StorageBackend:
 
 
 __all__ = ["LocalStorage", "StorageBackend", "get_storage"]
-
