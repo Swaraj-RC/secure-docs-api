@@ -57,3 +57,4 @@ def test_parse_range_header_invalid_bounds() -> None:
     # Empty file
     with pytest.raises(RangeNotSatisfiableError):
         parse_range_header("bytes=0-10", 0)
+

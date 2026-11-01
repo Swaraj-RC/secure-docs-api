@@ -18,7 +18,6 @@ from app.core.rate_limit import limiter
 from app.db.base import Base
 from app.main import create_app
 
-
 # SQLite dialect shims for PostgreSQL types when running tests without live PG
 @compiles(CITEXT, "sqlite")
 def _compile_citext_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:

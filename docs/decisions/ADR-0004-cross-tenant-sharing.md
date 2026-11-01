@@ -23,3 +23,4 @@ We adopt Controlled Cross-Tenant Sharing with strict least-privilege scoping:
 - Enables realistic B2B collaboration and external auditing workflows.
 - Granter role rules are strictly enforced: ordinary workspace members can grant `read` only; only workspace owners, admins, or document owners can grant `write` access.
 - Workspace boundary security is intact because workspace-level endpoints require verified membership.
+

@@ -65,3 +65,4 @@ def downgrade() -> None:
     op.drop_index("ix_refresh_user", table_name="refresh_tokens")
     op.drop_index("ix_refresh_tokens_family_id", table_name="refresh_tokens")
     op.drop_table("refresh_tokens")
+

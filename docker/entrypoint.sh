@@ -7,8 +7,9 @@ RETRY_COUNT=0
 until python -c "
 import asyncio, asyncpg, os
 async def check():
-    url = os.environ.get('DATABASE_URL', '').replace('+asyncpg', '')
-    conn = await asyncpg.connect(url.replace('postgresql+asyncpg', 'postgresql'))
+    raw_url = os.environ.get('DATABASE_URL') or os.environ.get('SECURE_DOCS_DB_URL', '')
+    url = raw_url.replace('postgresql+asyncpg', 'postgresql')
+    conn = await asyncpg.connect(url)
     await conn.close()
 asyncio.run(check())
 " 2>/dev/null; do

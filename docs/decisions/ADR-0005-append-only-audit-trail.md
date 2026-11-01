@@ -28,3 +28,4 @@ We implement a dedicated `audit_logs` table and a centralized `record_audit_even
 ## Consequences
 - Every document mutation, version download, share grant, and membership change writes an audit record.
 - Storage overhead scales with system activity; production deployments should enable table partitioning and cold retention archival.
+

@@ -46,3 +46,4 @@ class DocumentVersion(Base):
 
     document = relationship("Document", back_populates="versions", foreign_keys=[document_id])
     uploader = relationship("User", foreign_keys=[uploaded_by])
+

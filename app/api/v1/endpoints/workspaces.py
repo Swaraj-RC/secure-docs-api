@@ -167,3 +167,4 @@ async def remove_member_endpoint(
 ) -> MessageResponse:
     await remove_member(db=db, actor=current_user, ws_id=ws_id, target_user_id=user_id)
     return MessageResponse(message="Member successfully removed from workspace")
+

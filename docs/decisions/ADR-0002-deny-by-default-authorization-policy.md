@@ -23,3 +23,4 @@ Scattering authorization checks across endpoints or service methods risks permis
 
 - **Positive:** Centralized auditability, elimination of IDOR existence probing, guaranteed enforcement across all routes.
 - **Negative:** Non-members cannot be distinguished from genuinely non-existent records by design.
+

@@ -64,3 +64,4 @@ def downgrade() -> None:
     op.drop_constraint("fk_current_version", "documents", type_="foreignkey")
     op.drop_index("ix_document_versions_document_id", table_name="document_versions")
     op.drop_table("document_versions")
+
