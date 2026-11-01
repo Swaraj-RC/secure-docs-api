@@ -200,6 +200,20 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 
 ---
 
+### 2026-11-01 — SQLAlchemy Model.metadata attribute collision on AuditLog
+- **Area:** ORM / Database Mapping (`app/db/models/audit.py`)
+- **Symptom:** Defining `metadata: Mapped[dict] = mapped_column(...)` on `AuditLog` caused SQLAlchemy internal warnings and collisions with DeclarativeBase `Model.metadata` (MetaData object).
+- **Context:** Implementing the compliance requirement for structured JSON audit metadata on the `audit_logs` table.
+- **Investigation:** In SQLAlchemy `DeclarativeBase`, `.metadata` is the canonical attribute referring to the global table registry `sqlalchemy.schema.MetaData`. Naming a mapped column attribute `metadata` shadows this critical property.
+- **Root cause:** SQLAlchemy model attribute namespace collision with reserved base class attribute `metadata`.
+- **Fix:** Mapped attribute `metadata_json: Mapped[dict[str, Any]] = mapped_column("metadata", JSON, ...)` to preserve the exact SQL column name `"metadata"` while cleanly avoiding the Python attribute collision. Pydantic schema uses `validation_alias=AliasChoices("metadata_json", "metadata")` and `serialization_alias="metadata"`.
+- **Verification:** Migrations, queries, serialization, and integration tests passed cleanly.
+- **Lesson:** Always map reserved SQLAlchemy ORM names (such as `metadata` or `query`) using a distinct Python attribute name while designating the target database column name explicitly in `mapped_column()`.
+- **If asked in an interview:** "SQLAlchemy models reserve `.metadata` for the MetaData schema collection. To match a Postgres column named `metadata`, we declare the ORM attribute as `metadata_json = mapped_column('metadata', JSON)` and configure Pydantic aliases so the public API payload preserves the exact field name without internal framework collisions."
+- **Time cost:** ~5 min
+
+---
+
 ## Open Questions / Known Limitations
 
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`
