@@ -1,3 +1,7 @@
+import os
+
+import pytest
+from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
@@ -36,3 +40,22 @@ def test_alembic_migrations_revisions_chain() -> None:
     rev_0001 = script.get_revision("0001_users")
     assert rev_0001 is not None
     assert rev_0001.down_revision is None
+
+
+def test_alembic_upgrade_downgrade_cycle() -> None:
+    """Verify migrations apply cleanly to head, revert to base, and re-apply cleanly."""
+    db_url = os.environ.get("SECURE_DOCS_TEST_DB_URL") or os.environ.get("DATABASE_URL")
+    if not db_url or "sqlite" in db_url:
+        pytest.skip("Migration cycle test requires PostgreSQL database")
+
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", db_url)
+
+    # 1. Apply to head
+    command.upgrade(config, "head")
+
+    # 2. Downgrade to base
+    command.downgrade(config, "base")
+
+    # 3. Re-apply to head
+    command.upgrade(config, "head")

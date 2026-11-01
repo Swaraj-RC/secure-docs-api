@@ -14,8 +14,11 @@ from app.db.models import *  # noqa: F401, F403 — import all models for autoge
 config = context.config
 settings = get_settings()
 
-# Override sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+# Preserve sqlalchemy.url if explicitly set (e.g. tests or CLI), otherwise use settings
+target_url = config.get_main_option("sqlalchemy.url")
+if not target_url or not target_url.strip():
+    target_url = settings.DATABASE_URL
+config.set_main_option("sqlalchemy.url", target_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -57,7 +60,18 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     """Entrypoint for online migrations."""
-    asyncio.run(run_async_migrations())
+    import concurrent.futures
+
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(asyncio.run, run_async_migrations()).result()
+    else:
+        asyncio.run(run_async_migrations())
 
 
 if context.is_offline_mode():

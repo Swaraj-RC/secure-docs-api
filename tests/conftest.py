@@ -3,7 +3,10 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest_asyncio
+from alembic import command
+from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import CITEXT, INET, JSONB, UUID
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -19,10 +22,10 @@ from app.db.base import Base
 from app.main import create_app
 
 
-# SQLite dialect shims for PostgreSQL types when running tests without live PG
+# SQLite dialect shims for PostgreSQL types when running tests with TEST_BACKEND=sqlite
 @compiles(CITEXT, "sqlite")
 def _compile_citext_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
-    return "TEXT"
+    return "TEXT COLLATE NOCASE"
 
 
 @compiles(UUID, "sqlite")
@@ -40,17 +43,56 @@ def _compile_inet_sqlite(type_: Any, compiler: Any, **kw: Any) -> str:
     return "VARCHAR(45)"
 
 
-TEST_DB_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+TEST_BACKEND = os.environ.get("TEST_BACKEND", "").lower()
+USE_SQLITE = TEST_BACKEND == "sqlite"
+
+if USE_SQLITE:
+    TEST_DB_URL = os.environ.get("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+    IS_POSTGRES = False
+else:
+    # PostgreSQL is the default test backend
+    TEST_DB_URL = (
+        os.environ.get("SECURE_DOCS_TEST_DB_URL")
+        or os.environ.get("DATABASE_URL")
+        or "postgresql+asyncpg://test:test@localhost:5432/test"
+    )
+    IS_POSTGRES = True
+
+
+_MIGRATIONS_INITIALIZED = False
+
+
+def _apply_alembic_migrations(db_url: str) -> None:
+    cfg = Config("alembic.ini")
+    cfg.set_main_option("sqlalchemy.url", db_url)
+    command.upgrade(cfg, "head")
 
 
 @pytest_asyncio.fixture(scope="function")
 async def db_engine() -> AsyncGenerator[AsyncEngine, None]:
+    global _MIGRATIONS_INITIALIZED
     engine = create_async_engine(TEST_DB_URL, echo=False)
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+
+    if IS_POSTGRES:
+        if not _MIGRATIONS_INITIALIZED:
+            _apply_alembic_migrations(TEST_DB_URL)
+            _MIGRATIONS_INITIALIZED = True
+        yield engine
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "TRUNCATE TABLE audit_logs, document_shares, document_versions, "
+                    "documents, workspace_members, workspaces, refresh_tokens, users "
+                    "RESTART IDENTITY CASCADE"
+                )
+            )
+    else:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+
     await engine.dispose()
 
 

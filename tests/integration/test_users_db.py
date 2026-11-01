@@ -40,3 +40,17 @@ async def test_user_email_unique_constraint(db_session: AsyncSession) -> None:
     with pytest.raises(IntegrityError):
         await db_session.commit()
     await db_session.rollback()
+
+
+@pytest.mark.asyncio
+async def test_user_email_case_insensitive_unique_constraint(db_session: AsyncSession) -> None:
+    first = make_user(email="case.check@nexus-security.io")
+    second = make_user(email="CASE.CHECK@nexus-security.io")
+
+    db_session.add(first)
+    await db_session.commit()
+
+    db_session.add(second)
+    with pytest.raises(IntegrityError):
+        await db_session.commit()
+    await db_session.rollback()
