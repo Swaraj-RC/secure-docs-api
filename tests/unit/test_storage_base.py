@@ -1,16 +1,18 @@
-"""Unit tests for StorageBackend protocol."""
+from collections.abc import AsyncIterator
 
 from app.storage.base import StorageBackend
 
 
 class MockStorage:
-    """Mock storage adhering to protocol."""
+    async def put(self, key: str, stream: AsyncIterator[bytes] | bytes) -> int:
+        return 0
 
-    async def put(self, key: str, data: bytes) -> None:
-        pass
+    async def get(self, key: str) -> AsyncIterator[bytes]:
+        async def _empty() -> AsyncIterator[bytes]:
+            if False:
+                yield b""
 
-    async def get(self, key: str) -> bytes:
-        return b""
+        return _empty()
 
     async def delete(self, key: str) -> None:
         pass
@@ -20,6 +22,5 @@ class MockStorage:
 
 
 def test_storage_backend_protocol() -> None:
-    """Verify runtime checkable protocol."""
     mock = MockStorage()
     assert isinstance(mock, StorageBackend)

@@ -1,9 +1,4 @@
-"""Storage backend protocol — interface for file storage.
-
-Implementations: LocalStorage (default), S3Storage (optional).
-Expanded in Day 7.
-"""
-
+from collections.abc import AsyncIterator
 from typing import Protocol, runtime_checkable
 
 
@@ -11,16 +6,16 @@ from typing import Protocol, runtime_checkable
 class StorageBackend(Protocol):
     """Protocol defining the storage interface."""
 
-    async def put(self, key: str, data: bytes) -> None:
-        """Store data under the given key."""
+    async def put(self, key: str, stream: AsyncIterator[bytes] | bytes) -> int:
+        """Store streaming or raw bytes under key and return size in bytes."""
         ...
 
-    async def get(self, key: str) -> bytes:
-        """Retrieve data by key."""
+    async def get(self, key: str) -> AsyncIterator[bytes]:
+        """Stream data chunks by key."""
         ...
 
     async def delete(self, key: str) -> None:
-        """Delete data by key."""
+        """Delete object by key."""
         ...
 
     async def exists(self, key: str) -> bool:
