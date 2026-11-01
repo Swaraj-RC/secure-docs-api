@@ -125,6 +125,21 @@ interview" section is a 2–3 sentence summary suitable for verbal explanation.
 
 ---
 
+
+### 2026-11-01 ? Route reflection meta-test identifies unprotected logout endpoint
+- **Area:** Authorization / Route Security (tests/unit/test_meta_security.py)
+- **Symptom:** Meta-test failed: AssertionError: SECURITY VIOLATION: Route '/api/v1/auth/logout' [POST] is not in the public allowlist and has no authentication dependency attached!
+- **Context:** Executing Day 5 security meta-test that inspects all registered FastAPI route dependencies.
+- **Investigation:** Examined app/api/v1/endpoints/auth.py. Although the logout endpoint revoked refresh tokens passed in the request body, it lacked an HTTP Bearer dependency.
+- **Root cause:** The handler signature omitted current_user = Depends(get_current_user).
+- **Fix:** Added current_user: User = Depends(get_current_user) to the logout endpoint and updated integration test fixtures to provide valid Bearer tokens.
+- **Verification:** Meta-test confirmed 100% of non-public routes require authentication.
+- **Lesson:** Writing an automated meta-test that inspects application routes at test time reliably catches unprotected endpoints before code reaches production.
+- **If asked in an interview:** "We wrote a meta-test that reflects over pp.routes and validates that every non-public endpoint declares an explicit authentication dependency. It immediately caught that our logout route lacked a Bearer token dependency, guarding against accidental route exposure."
+- **Time cost:** ~5 min
+
+---
+
 ## Open Questions / Known Limitations
 
 - [ ] `python-magic` requires `libmagic1` system package — Dockerfile installs it, but local dev on Windows uses `python-magic-bin`

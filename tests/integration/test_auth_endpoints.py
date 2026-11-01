@@ -120,9 +120,10 @@ async def test_logout_revokes_token(async_client: AsyncClient) -> None:
     )
     tokens = login_res.json()
 
-    # Logout
+    # Logout requires valid Bearer token
     logout_res = await async_client.post(
         "/api/v1/auth/logout",
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
         json={"refresh_token": tokens["refresh_token"]},
     )
     assert logout_res.status_code == 200
